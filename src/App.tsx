@@ -4,6 +4,8 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
+import * as htmlToImage from 'html-to-image';
+import jsPDF from 'jspdf';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -911,6 +913,59 @@ export default function App() {
   const [rawHistoryData, setRawHistoryData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [forwardPeriod, setForwardPeriod] = useState<number>(3); // in months
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    
+    try {
+      const pdf = new jsPDF('landscape', 'pt', 'a4');
+      const tabs = ['dashboard', 'forward', 'correlation', 'backtest', 'appendix'];
+      
+      for (let i = 0; i < tabs.length; i++) {
+        const tab = tabs[i];
+        const element = document.getElementById(`export-${tab}`);
+        if (element) {
+          const imgData = await htmlToImage.toJpeg(element, {
+            quality: 1.0,
+            backgroundColor: '#050505',
+            pixelRatio: 2,
+          });
+          
+          const pdfWidth = pdf.internal.pageSize.getWidth();
+          const pdfHeight = pdf.internal.pageSize.getHeight();
+          
+          const imgProps = pdf.getImageProperties(imgData);
+          const imgRatio = imgProps.width / imgProps.height;
+          const pdfRatio = pdfWidth / pdfHeight;
+          
+          let finalWidth = pdfWidth;
+          let finalHeight = pdfHeight;
+          
+          if (imgRatio > pdfRatio) {
+            finalHeight = pdfWidth / imgRatio;
+          } else {
+            finalWidth = pdfHeight * imgRatio;
+          }
+          
+          const x = (pdfWidth - finalWidth) / 2;
+          const y = (pdfHeight - finalHeight) / 2;
+          
+          if (i > 0) {
+            pdf.addPage();
+          }
+          
+          pdf.addImage(imgData, 'JPEG', x, y, finalWidth, finalHeight);
+        }
+      }
+      
+      pdf.save('BEATS_Scorecard.pdf');
+    } catch (error) {
+      console.error('Export failed:', error);
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   useEffect(() => {
     // Fetch current data
@@ -995,9 +1050,22 @@ export default function App() {
               FRED_SYNC_ACTIVE
             </div>
             <div className="h-4 w-px bg-white/10 hidden md:block"></div>
-            <button className="text-xs font-medium uppercase tracking-wider text-white/70 hover:text-white transition-colors flex items-center gap-2">
-              <Download className="w-4 h-4" />
-              Export
+            <button 
+              onClick={handleExport}
+              disabled={isExporting}
+              className={cn(
+                "text-xs font-medium uppercase tracking-wider transition-colors flex items-center gap-2 px-4 py-2 rounded-md border",
+                isExporting 
+                  ? "text-white/50 border-white/10 bg-white/5 cursor-not-allowed" 
+                  : "text-white/70 hover:text-white border-white/20 hover:bg-white/10"
+              )}
+            >
+              {isExporting ? (
+                <div className="w-4 h-4 border-2 border-white/20 border-t-white/80 rounded-full animate-spin" />
+              ) : (
+                <Download className="w-4 h-4" />
+              )}
+              {isExporting ? 'Exporting...' : 'Export'}
             </button>
           </div>
         </div>
@@ -1034,6 +1102,45 @@ export default function App() {
         </div>
       </main>
       
+      {/* Hidden Export Container */}
+      <div className="fixed top-0 left-[-9999px] w-[1280px] bg-[#050505] text-white pointer-events-none z-[-1]">
+        <div id="export-dashboard" className="w-[1280px] min-h-[800px] bg-[#050505] p-8">
+          <div className="mb-6 pb-4 border-b border-white/10">
+            <h1 className="text-2xl font-semibold tracking-tight text-white">BEATS Dashboard</h1>
+            <p className="text-sm uppercase tracking-widest text-white/40 font-medium">Bond Equity Allocation Timing Scorecard</p>
+          </div>
+          <DashboardTab fredData={fredData} loading={loading} historyData={historyData} />
+        </div>
+        <div id="export-forward" className="w-[1280px] min-h-[800px] bg-[#050505] p-8">
+          <div className="mb-6 pb-4 border-b border-white/10">
+            <h1 className="text-2xl font-semibold tracking-tight text-white">Forward Returns</h1>
+            <p className="text-sm uppercase tracking-widest text-white/40 font-medium">Bond Equity Allocation Timing Scorecard</p>
+          </div>
+          <ForwardReturnsTab historyData={historyData} forwardPeriod={forwardPeriod} setForwardPeriod={setForwardPeriod} />
+        </div>
+        <div id="export-correlation" className="w-[1280px] min-h-[800px] bg-[#050505] p-8">
+          <div className="mb-6 pb-4 border-b border-white/10">
+            <h1 className="text-2xl font-semibold tracking-tight text-white">Correlation Matrix</h1>
+            <p className="text-sm uppercase tracking-widest text-white/40 font-medium">Bond Equity Allocation Timing Scorecard</p>
+          </div>
+          <CorrelationMatrixTab historyData={historyData} />
+        </div>
+        <div id="export-backtest" className="w-[1280px] min-h-[800px] bg-[#050505] p-8">
+          <div className="mb-6 pb-4 border-b border-white/10">
+            <h1 className="text-2xl font-semibold tracking-tight text-white">Backtest Logic & Signals</h1>
+            <p className="text-sm uppercase tracking-widest text-white/40 font-medium">Bond Equity Allocation Timing Scorecard</p>
+          </div>
+          <BacktestTab historyData={historyData} forwardPeriod={forwardPeriod} setForwardPeriod={setForwardPeriod} />
+        </div>
+        <div id="export-appendix" className="w-[1280px] min-h-[800px] bg-[#050505] p-8">
+          <div className="mb-6 pb-4 border-b border-white/10">
+            <h1 className="text-2xl font-semibold tracking-tight text-white">Appendix</h1>
+            <p className="text-sm uppercase tracking-widest text-white/40 font-medium">Bond Equity Allocation Timing Scorecard</p>
+          </div>
+          <AppendixTab />
+        </div>
+      </div>
+
       <Chatbot 
         fredData={fredData} 
         historyData={historyData} 
