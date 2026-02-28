@@ -7,6 +7,8 @@ import {
   ShieldAlert, 
   ArrowRightLeft, 
   BookOpen,
+  Zap,
+  Target,
   ArrowRight
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
@@ -200,16 +202,117 @@ export function CockpitOverview({ setActiveModel, fredData, loading }: CockpitOv
         {/* Inflation Tracker */}
         <div 
           onClick={() => setActiveModel('inflation')}
-          className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6 flex flex-col cursor-pointer hover:bg-[#141414] hover:border-white/20 transition-all group relative overflow-hidden opacity-70"
+          className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6 flex flex-col cursor-pointer hover:bg-[#141414] hover:border-white/20 transition-all group relative overflow-hidden"
         >
+          <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none group-hover:bg-amber-500/10 transition-colors"></div>
           <div className="flex justify-between items-start mb-6">
-            <div className="w-12 h-12 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
-              <TrendingUp className="w-6 h-6 text-white/40" />
+            <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+              <TrendingUp className="w-6 h-6 text-amber-400" />
             </div>
-            <div className="text-xs font-medium uppercase tracking-wider text-white/30 bg-white/5 px-2 py-1 rounded">In Dev</div>
+            <ArrowRight className="w-5 h-5 text-white/20 group-hover:text-white/60 transition-colors group-hover:translate-x-1" />
           </div>
           <h3 className="text-lg font-semibold text-white mb-1">Inflation Tracker</h3>
           <p className="text-sm text-white/40 mb-6 flex-1">Real-time tracking of CPI, PCE, and leading inflation indicators like commodities and wages.</p>
+          
+          <div className="bg-[#0a0a0a] rounded-xl p-4 border border-white/5 flex items-center justify-between">
+            <div>
+              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">Regime</div>
+              <div className="text-sm font-bold text-amber-400 uppercase tracking-widest">
+                Elevated
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">10Y Breakeven</div>
+              <div className="text-sm font-mono text-amber-400">2.45%</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Credit Cycle */}
+        <div 
+          onClick={() => setActiveModel('credit')}
+          className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6 flex flex-col cursor-pointer hover:bg-[#141414] hover:border-white/20 transition-all group relative overflow-hidden"
+        >
+          <div className="absolute top-0 right-0 w-32 h-32 bg-rose-500/5 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none group-hover:bg-rose-500/10 transition-colors"></div>
+          <div className="flex justify-between items-start mb-6">
+            <div className="w-12 h-12 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center">
+              <Activity className="w-6 h-6 text-rose-400" />
+            </div>
+            <ArrowRight className="w-5 h-5 text-white/20 group-hover:text-white/60 transition-colors group-hover:translate-x-1" />
+          </div>
+          <h3 className="text-lg font-semibold text-white mb-1">Credit Cycle Sense</h3>
+          <p className="text-sm text-white/40 mb-6 flex-1">Analysis of HY spreads and bank lending standards to detect credit contraction or expansion.</p>
+          
+          <div className="bg-[#0a0a0a] rounded-xl p-4 border border-white/5 flex items-center justify-between">
+            <div>
+              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">Cycle</div>
+              <div className="text-sm font-bold text-rose-400 uppercase tracking-widest">
+                Contracting
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">HY Spread</div>
+              <div className="text-sm font-mono text-rose-400">4.2%</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Liquidity Pulse */}
+        <div 
+          onClick={() => setActiveModel('liquidity')}
+          className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6 flex flex-col cursor-pointer hover:bg-[#141414] hover:border-white/20 transition-all group relative overflow-hidden"
+        >
+          <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-500/5 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none group-hover:bg-yellow-500/10 transition-colors"></div>
+          <div className="flex justify-between items-start mb-6">
+            <div className="w-12 h-12 rounded-xl bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center">
+              <Zap className="w-6 h-6 text-yellow-400" />
+            </div>
+            <ArrowRight className="w-5 h-5 text-white/20 group-hover:text-white/60 transition-colors group-hover:translate-x-1" />
+          </div>
+          <h3 className="text-lg font-semibold text-white mb-1">Liquidity Pulse</h3>
+          <p className="text-sm text-white/40 mb-6 flex-1">Tracking Fed balance sheet (QT/QE) and M2 momentum to gauge market liquidity.</p>
+          
+          <div className="bg-[#0a0a0a] rounded-xl p-4 border border-white/5 flex items-center justify-between">
+            <div>
+              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">Pulse</div>
+              <div className="text-sm font-bold text-rose-400 uppercase tracking-widest">
+                Contracting
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">Fed Assets</div>
+              <div className="text-sm font-mono text-rose-400">$7.4T</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Economic Surprise */}
+        <div 
+          onClick={() => setActiveModel('surprise')}
+          className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6 flex flex-col cursor-pointer hover:bg-[#141414] hover:border-white/20 transition-all group relative overflow-hidden"
+        >
+          <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none group-hover:bg-emerald-500/10 transition-colors"></div>
+          <div className="flex justify-between items-start mb-6">
+            <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+              <Target className="w-6 h-6 text-emerald-400" />
+            </div>
+            <ArrowRight className="w-5 h-5 text-white/20 group-hover:text-white/60 transition-colors group-hover:translate-x-1" />
+          </div>
+          <h3 className="text-lg font-semibold text-white mb-1">Economic Surprise</h3>
+          <p className="text-sm text-white/40 mb-6 flex-1">Measuring the delta between actual economic data releases and analyst consensus.</p>
+          
+          <div className="bg-[#0a0a0a] rounded-xl p-4 border border-white/5 flex items-center justify-between">
+            <div>
+              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">ESI Score</div>
+              <div className="text-sm font-bold text-emerald-400 uppercase tracking-widest">
+                +14.2
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">Momentum</div>
+              <div className="text-sm font-mono text-emerald-400">Positive</div>
+            </div>
+          </div>
         </div>
 
         {/* Recession Probability */}

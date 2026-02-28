@@ -15,7 +15,9 @@ import {
   BookOpen,
   Download,
   BarChart3,
-  Cpu
+  Cpu,
+  Zap,
+  Target
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -44,6 +46,11 @@ import { Chatbot } from './components/Chatbot';
 import { SectorScorecard } from './components/SectorScorecard';
 import { RegimeModel } from './components/RegimeModel';
 import { CockpitOverview } from './components/CockpitOverview';
+import { AssetAllocationDashboard } from './components/AssetAllocationDashboard';
+import { CreditCycle } from './components/CreditCycle';
+import { LiquidityPulse } from './components/LiquidityPulse';
+import { InflationTracker } from './components/InflationTracker';
+import { EconomicSurprise } from './components/EconomicSurprise';
 
 const scorecardConfig = [
   {
@@ -1058,6 +1065,13 @@ export default function App() {
             <Activity className={cn("w-4 h-4", activeModel === 'overview' ? "text-emerald-400" : "")} />
             Cockpit
           </button>
+          <button 
+            onClick={() => setActiveModel('allocation')}
+            className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'allocation' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
+          >
+            <LineChart className={cn("w-4 h-4", activeModel === 'allocation' ? "text-emerald-400" : "")} />
+            Asset Allocation
+          </button>
           
           <div className="text-xs font-medium uppercase tracking-wider text-white/30 px-3 mb-2 mt-6">Scorecards</div>
           <button 
@@ -1095,8 +1109,22 @@ export default function App() {
             <ShieldAlert className={cn("w-4 h-4", activeModel === 'recession' ? "text-emerald-400" : "")} />
             Recession Probability
           </button>
+          <button 
+            onClick={() => setActiveModel('surprise')}
+            className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'surprise' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
+          >
+            <Target className={cn("w-4 h-4", activeModel === 'surprise' ? "text-emerald-400" : "")} />
+            Economic Surprise
+          </button>
           
           <div className="text-xs font-medium uppercase tracking-wider text-white/30 px-3 mb-2 mt-6">Models</div>
+          <button 
+            onClick={() => setActiveModel('liquidity')}
+            className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'liquidity' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
+          >
+            <Zap className={cn("w-4 h-4", activeModel === 'liquidity' ? "text-emerald-400" : "")} />
+            Liquidity Pulse
+          </button>
           <button 
             onClick={() => setActiveModel('yield')}
             className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'yield' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
@@ -1122,20 +1150,28 @@ export default function App() {
             <div>
               <h2 className="text-lg font-semibold tracking-tight text-white">
                 {activeModel === 'overview' && 'Cockpit Overview'}
+                {activeModel === 'allocation' && 'Asset Allocation Dashboard'}
                 {activeModel === 'beats' && 'BEATS Scorecard'}
                 {activeModel === 'sector' && 'Sector Scorecard'}
                 {activeModel === 'regime' && 'Regime Model'}
                 {activeModel === 'inflation' && 'Inflation Tracker'}
                 {activeModel === 'recession' && 'Recession Probability'}
+                {activeModel === 'surprise' && 'Economic Surprise Index'}
+                {activeModel === 'liquidity' && 'Global Liquidity Pulse'}
                 {activeModel === 'yield' && 'Yield Curve Model'}
-                {activeModel === 'credit' && 'Credit Cycle'}
+                {activeModel === 'credit' && 'Credit Cycle Sense'}
               </h2>
               <p className="text-xs text-white/40">
                 {activeModel === 'overview' && 'Central dashboard for all models and scorecards'}
+                {activeModel === 'allocation' && 'Macro Sensing & Tactical Asset Allocation'}
                 {activeModel === 'beats' && 'Bond Equity Allocation Timing Scorecard'}
                 {activeModel === 'sector' && 'Sector Allocation & Momentum'}
                 {activeModel === 'regime' && '4-State Hidden Markov Model'}
-                {activeModel !== 'overview' && activeModel !== 'beats' && activeModel !== 'sector' && activeModel !== 'regime' && 'Model currently under development'}
+                {activeModel === 'inflation' && '10Y Breakeven & Sticky CPI Tracker'}
+                {activeModel === 'credit' && 'HY Spreads vs Bank Lending Standards'}
+                {activeModel === 'liquidity' && 'Fed Balance Sheet & M2 Momentum'}
+                {activeModel === 'surprise' && 'Data vs Analyst Expectations'}
+                {activeModel !== 'overview' && activeModel !== 'allocation' && activeModel !== 'beats' && activeModel !== 'sector' && activeModel !== 'regime' && activeModel !== 'inflation' && activeModel !== 'credit' && activeModel !== 'liquidity' && activeModel !== 'surprise' && 'Model currently under development'}
               </p>
             </div>
             <div className="flex items-center gap-6 text-sm">
@@ -1166,9 +1202,19 @@ export default function App() {
         </header>
 
         {/* Main Content */}
-        <main className={cn("px-8 py-8", (activeModel === 'sector' || activeModel === 'regime' || activeModel === 'overview') ? "h-[calc(100vh-4rem)] pb-8" : "pb-24")}>
+        <main className={cn("px-8 py-8", (activeModel === 'sector' || activeModel === 'regime' || activeModel === 'overview' || activeModel === 'allocation' || activeModel === 'credit' || activeModel === 'liquidity' || activeModel === 'inflation' || activeModel === 'surprise') ? "h-[calc(100vh-4rem)] pb-8 overflow-y-auto" : "pb-24")}>
           {activeModel === 'overview' ? (
             <CockpitOverview setActiveModel={setActiveModel} fredData={fredData} loading={loading} />
+          ) : activeModel === 'allocation' ? (
+            <AssetAllocationDashboard />
+          ) : activeModel === 'credit' ? (
+            <CreditCycle />
+          ) : activeModel === 'liquidity' ? (
+            <LiquidityPulse />
+          ) : activeModel === 'inflation' ? (
+            <InflationTracker />
+          ) : activeModel === 'surprise' ? (
+            <EconomicSurprise />
           ) : activeModel === 'beats' ? (
             <>
               {/* Tabs Navigation */}
