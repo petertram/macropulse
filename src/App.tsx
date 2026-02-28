@@ -43,6 +43,7 @@ function cn(...inputs: ClassValue[]) {
 import { Chatbot } from './components/Chatbot';
 import { SectorScorecard } from './components/SectorScorecard';
 import { RegimeModel } from './components/RegimeModel';
+import { CockpitOverview } from './components/CockpitOverview';
 
 const scorecardConfig = [
   {
@@ -912,7 +913,7 @@ function AppendixTab() {
 }
 
 export default function App() {
-  const [activeModel, setActiveModel] = useState('beats');
+  const [activeModel, setActiveModel] = useState('overview');
   const [activeTab, setActiveTab] = useState('dashboard');
   const [fredData, setFredData] = useState<any[]>([]);
   const [rawHistoryData, setRawHistoryData] = useState<any[]>([]);
@@ -1049,7 +1050,16 @@ export default function App() {
           </div>
         </div>
         <div className="flex-1 overflow-y-auto py-4 px-3 flex flex-col gap-1">
-          <div className="text-xs font-medium uppercase tracking-wider text-white/30 px-3 mb-2 mt-4">Scorecards</div>
+          <div className="text-xs font-medium uppercase tracking-wider text-white/30 px-3 mb-2 mt-4">Overview</div>
+          <button 
+            onClick={() => setActiveModel('overview')}
+            className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'overview' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
+          >
+            <Activity className={cn("w-4 h-4", activeModel === 'overview' ? "text-emerald-400" : "")} />
+            Cockpit
+          </button>
+          
+          <div className="text-xs font-medium uppercase tracking-wider text-white/30 px-3 mb-2 mt-6">Scorecards</div>
           <button 
             onClick={() => setActiveModel('beats')}
             className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'beats' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
@@ -1111,6 +1121,7 @@ export default function App() {
           <div className="px-8 h-16 flex items-center justify-between">
             <div>
               <h2 className="text-lg font-semibold tracking-tight text-white">
+                {activeModel === 'overview' && 'Cockpit Overview'}
                 {activeModel === 'beats' && 'BEATS Scorecard'}
                 {activeModel === 'sector' && 'Sector Scorecard'}
                 {activeModel === 'regime' && 'Regime Model'}
@@ -1120,10 +1131,11 @@ export default function App() {
                 {activeModel === 'credit' && 'Credit Cycle'}
               </h2>
               <p className="text-xs text-white/40">
+                {activeModel === 'overview' && 'Central dashboard for all models and scorecards'}
                 {activeModel === 'beats' && 'Bond Equity Allocation Timing Scorecard'}
                 {activeModel === 'sector' && 'Sector Allocation & Momentum'}
                 {activeModel === 'regime' && '4-State Hidden Markov Model'}
-                {activeModel !== 'beats' && activeModel !== 'sector' && activeModel !== 'regime' && 'Model currently under development'}
+                {activeModel !== 'overview' && activeModel !== 'beats' && activeModel !== 'sector' && activeModel !== 'regime' && 'Model currently under development'}
               </p>
             </div>
             <div className="flex items-center gap-6 text-sm">
@@ -1154,8 +1166,10 @@ export default function App() {
         </header>
 
         {/* Main Content */}
-        <main className={cn("px-8 py-8", activeModel === 'sector' ? "h-[calc(100vh-4rem)] pb-8" : "pb-24")}>
-          {activeModel === 'beats' ? (
+        <main className={cn("px-8 py-8", (activeModel === 'sector' || activeModel === 'regime' || activeModel === 'overview') ? "h-[calc(100vh-4rem)] pb-8" : "pb-24")}>
+          {activeModel === 'overview' ? (
+            <CockpitOverview setActiveModel={setActiveModel} fredData={fredData} loading={loading} />
+          ) : activeModel === 'beats' ? (
             <>
               {/* Tabs Navigation */}
               <div className="flex space-x-1 bg-[#0f0f0f] p-1 rounded-lg border border-white/10 w-fit mb-8 overflow-x-auto">
