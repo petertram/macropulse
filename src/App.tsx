@@ -13,7 +13,9 @@ import {
   ShieldAlert,
   ArrowRightLeft,
   BookOpen,
-  Download
+  Download,
+  BarChart3,
+  Cpu
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -39,6 +41,8 @@ function cn(...inputs: ClassValue[]) {
 
 // Dynamic Scorecard Configuration mapping directly to FRED series
 import { Chatbot } from './components/Chatbot';
+import { SectorScorecard } from './components/SectorScorecard';
+import { RegimeModel } from './components/RegimeModel';
 
 const scorecardConfig = [
   {
@@ -908,6 +912,7 @@ function AppendixTab() {
 }
 
 export default function App() {
+  const [activeModel, setActiveModel] = useState('beats');
   const [activeTab, setActiveTab] = useState('dashboard');
   const [fredData, setFredData] = useState<any[]>([]);
   const [rawHistoryData, setRawHistoryData] = useState<any[]>([]);
@@ -1031,76 +1036,170 @@ export default function App() {
   }, [rawHistoryData, forwardPeriod]);
 
   return (
-    <div className="min-h-screen bg-[#050505] font-sans text-white selection:bg-indigo-500/30 pb-12">
-      {/* Header */}
-      <header className="border-b border-white/10 bg-[#0a0a0a] sticky top-0 z-20 backdrop-blur-md bg-opacity-80">
-        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center overflow-hidden border border-[#073620]/50 shadow-[0_0_15px_rgba(7,54,32,0.4)]">
-              <img src="/favicon.svg" alt="BEATS Logo" className="w-full h-full object-cover" />
-            </div>
+    <div className="min-h-screen bg-[#050505] font-sans text-white selection:bg-indigo-500/30 flex">
+      {/* Sidebar */}
+      <aside className="w-64 border-r border-white/10 bg-[#0a0a0a] flex-shrink-0 flex flex-col h-screen sticky top-0">
+        <div className="p-6 border-b border-white/10 flex items-center gap-4">
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center overflow-hidden border border-[#073620]/50 shadow-[0_0_15px_rgba(7,54,32,0.4)]">
+            <img src="/favicon.svg" alt="Logo" className="w-full h-full object-cover" />
+          </div>
+          <div>
+            <h1 className="text-base font-semibold tracking-tight text-white leading-tight">QuantDash</h1>
+            <p className="text-[10px] uppercase tracking-widest text-white/40 font-medium">Models & Scorecards</p>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto py-4 px-3 flex flex-col gap-1">
+          <div className="text-xs font-medium uppercase tracking-wider text-white/30 px-3 mb-2 mt-4">Scorecards</div>
+          <button 
+            onClick={() => setActiveModel('beats')}
+            className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'beats' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
+          >
+            <Activity className={cn("w-4 h-4", activeModel === 'beats' ? "text-emerald-400" : "")} />
+            BEATS Scorecard
+          </button>
+          <button 
+            onClick={() => setActiveModel('sector')}
+            className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'sector' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
+          >
+            <BarChart3 className={cn("w-4 h-4", activeModel === 'sector' ? "text-emerald-400" : "")} />
+            Sector Scorecard
+          </button>
+          <button 
+            onClick={() => setActiveModel('regime')}
+            className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'regime' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
+          >
+            <Cpu className={cn("w-4 h-4", activeModel === 'regime' ? "text-emerald-400" : "")} />
+            Regime Model
+          </button>
+          <button 
+            onClick={() => setActiveModel('inflation')}
+            className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'inflation' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
+          >
+            <TrendingUp className={cn("w-4 h-4", activeModel === 'inflation' ? "text-emerald-400" : "")} />
+            Inflation Tracker
+          </button>
+          <button 
+            onClick={() => setActiveModel('recession')}
+            className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'recession' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
+          >
+            <ShieldAlert className={cn("w-4 h-4", activeModel === 'recession' ? "text-emerald-400" : "")} />
+            Recession Probability
+          </button>
+          
+          <div className="text-xs font-medium uppercase tracking-wider text-white/30 px-3 mb-2 mt-6">Models</div>
+          <button 
+            onClick={() => setActiveModel('yield')}
+            className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'yield' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
+          >
+            <ArrowRightLeft className={cn("w-4 h-4", activeModel === 'yield' ? "text-emerald-400" : "")} />
+            Yield Curve Model
+          </button>
+          <button 
+            onClick={() => setActiveModel('credit')}
+            className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'credit' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
+          >
+            <BookOpen className={cn("w-4 h-4", activeModel === 'credit' ? "text-emerald-400" : "")} />
+            Credit Cycle
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Header */}
+        <header className="border-b border-white/10 bg-[#0a0a0a] sticky top-0 z-20 backdrop-blur-md bg-opacity-80">
+          <div className="px-8 h-16 flex items-center justify-between">
             <div>
-              <h1 className="text-base font-semibold tracking-tight text-white leading-tight">BEATS</h1>
-              <p className="text-[10px] uppercase tracking-widest text-white/40 font-medium">Bond Equity Allocation Timing Scorecard</p>
+              <h2 className="text-lg font-semibold tracking-tight text-white">
+                {activeModel === 'beats' && 'BEATS Scorecard'}
+                {activeModel === 'sector' && 'Sector Scorecard'}
+                {activeModel === 'regime' && 'Regime Model'}
+                {activeModel === 'inflation' && 'Inflation Tracker'}
+                {activeModel === 'recession' && 'Recession Probability'}
+                {activeModel === 'yield' && 'Yield Curve Model'}
+                {activeModel === 'credit' && 'Credit Cycle'}
+              </h2>
+              <p className="text-xs text-white/40">
+                {activeModel === 'beats' && 'Bond Equity Allocation Timing Scorecard'}
+                {activeModel === 'sector' && 'Sector Allocation & Momentum'}
+                {activeModel === 'regime' && '4-State Hidden Markov Model'}
+                {activeModel !== 'beats' && activeModel !== 'sector' && activeModel !== 'regime' && 'Model currently under development'}
+              </p>
+            </div>
+            <div className="flex items-center gap-6 text-sm">
+              <div className="hidden md:flex items-center gap-2 text-white/50 font-mono text-xs">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse"></span>
+                FRED_SYNC_ACTIVE
+              </div>
+              <div className="h-4 w-px bg-white/10 hidden md:block"></div>
+              <button 
+                onClick={handleExport}
+                disabled={isExporting}
+                className={cn(
+                  "text-xs font-medium uppercase tracking-wider transition-colors flex items-center gap-2 px-4 py-2 rounded-md border",
+                  isExporting 
+                    ? "text-white/50 border-white/10 bg-white/5 cursor-not-allowed" 
+                    : "text-white/70 hover:text-white border-white/20 hover:bg-white/10"
+                )}
+              >
+                {isExporting ? (
+                  <div className="w-4 h-4 border-2 border-white/20 border-t-white/80 rounded-full animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4" />
+                )}
+                {isExporting ? 'Exporting...' : 'Export'}
+              </button>
             </div>
           </div>
-          <div className="flex items-center gap-6 text-sm">
-            <div className="hidden md:flex items-center gap-2 text-white/50 font-mono text-xs">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse"></span>
-              FRED_SYNC_ACTIVE
+        </header>
+
+        {/* Main Content */}
+        <main className={cn("px-8 py-8", activeModel === 'sector' ? "h-[calc(100vh-4rem)] pb-8" : "pb-24")}>
+          {activeModel === 'beats' ? (
+            <>
+              {/* Tabs Navigation */}
+              <div className="flex space-x-1 bg-[#0f0f0f] p-1 rounded-lg border border-white/10 w-fit mb-8 overflow-x-auto">
+                {['dashboard', 'forward', 'correlation', 'backtest', 'appendix'].map(tab => (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    className={cn(
+                      "px-6 py-2 rounded-md text-sm font-medium transition-all duration-200 capitalize whitespace-nowrap",
+                      activeTab === tab 
+                        ? "bg-[#1f1f1f] text-white shadow-sm border border-white/5" 
+                        : "text-white/40 hover:text-white/80 hover:bg-white/5 border border-transparent"
+                    )}
+                  >
+                    {tab === 'forward' ? 'Forward Returns' : tab === 'correlation' ? 'Correlation Matrix' : tab}
+                  </button>
+                ))}
+              </div>
+
+              {/* Tab Content */}
+              <div>
+                {activeTab === 'dashboard' && <DashboardTab fredData={fredData} loading={loading} historyData={historyData} />}
+                {activeTab === 'forward' && <ForwardReturnsTab historyData={historyData} forwardPeriod={forwardPeriod} setForwardPeriod={setForwardPeriod} />}
+                {activeTab === 'correlation' && <CorrelationMatrixTab historyData={historyData} />}
+                {activeTab === 'backtest' && <BacktestTab historyData={historyData} forwardPeriod={forwardPeriod} setForwardPeriod={setForwardPeriod} />}
+                {activeTab === 'appendix' && <AppendixTab />}
+              </div>
+            </>
+          ) : activeModel === 'sector' ? (
+            <SectorScorecard />
+          ) : activeModel === 'regime' ? (
+            <RegimeModel />
+          ) : (
+            <div className="flex flex-col items-center justify-center h-[60vh] text-center">
+              <div className="w-16 h-16 mb-6 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
+                <Activity className="w-8 h-8 text-white/20" />
+              </div>
+              <h3 className="text-xl font-medium text-white mb-2">Coming Soon</h3>
+              <p className="text-white/40 max-w-md">
+                This model is currently under development. Check back later for updates to the QuantDash platform.
+              </p>
             </div>
-            <div className="h-4 w-px bg-white/10 hidden md:block"></div>
-            <button 
-              onClick={handleExport}
-              disabled={isExporting}
-              className={cn(
-                "text-xs font-medium uppercase tracking-wider transition-colors flex items-center gap-2 px-4 py-2 rounded-md border",
-                isExporting 
-                  ? "text-white/50 border-white/10 bg-white/5 cursor-not-allowed" 
-                  : "text-white/70 hover:text-white border-white/20 hover:bg-white/10"
-              )}
-            >
-              {isExporting ? (
-                <div className="w-4 h-4 border-2 border-white/20 border-t-white/80 rounded-full animate-spin" />
-              ) : (
-                <Download className="w-4 h-4" />
-              )}
-              {isExporting ? 'Exporting...' : 'Export'}
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        
-        {/* Tabs Navigation */}
-        <div className="flex space-x-1 bg-[#0f0f0f] p-1 rounded-lg border border-white/10 w-fit mb-8 overflow-x-auto">
-          {['dashboard', 'forward', 'correlation', 'backtest', 'appendix'].map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={cn(
-                "px-6 py-2 rounded-md text-sm font-medium transition-all duration-200 capitalize whitespace-nowrap",
-                activeTab === tab 
-                  ? "bg-[#1f1f1f] text-white shadow-sm border border-white/5" 
-                  : "text-white/40 hover:text-white/80 hover:bg-white/5 border border-transparent"
-              )}
-            >
-              {tab === 'forward' ? 'Forward Returns' : tab === 'correlation' ? 'Correlation Matrix' : tab}
-            </button>
-          ))}
-        </div>
-
-        {/* Tab Content */}
-        <div>
-          {activeTab === 'dashboard' && <DashboardTab fredData={fredData} loading={loading} historyData={historyData} />}
-          {activeTab === 'forward' && <ForwardReturnsTab historyData={historyData} forwardPeriod={forwardPeriod} setForwardPeriod={setForwardPeriod} />}
-          {activeTab === 'correlation' && <CorrelationMatrixTab historyData={historyData} />}
-          {activeTab === 'backtest' && <BacktestTab historyData={historyData} forwardPeriod={forwardPeriod} setForwardPeriod={setForwardPeriod} />}
-          {activeTab === 'appendix' && <AppendixTab />}
-        </div>
-      </main>
+          )}
+        </main>
       
       {/* Hidden Export Container */}
       <div className="fixed top-0 left-[-9999px] w-[1280px] bg-[#050505] text-white pointer-events-none z-[-1]">
@@ -1147,6 +1246,7 @@ export default function App() {
         scorecardConfig={scorecardConfig} 
         appendixData={appendixData} 
       />
+      </div>
     </div>
   );
 }
