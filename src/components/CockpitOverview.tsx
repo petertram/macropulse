@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Activity, 
   BarChart3, 
@@ -11,16 +11,53 @@ import {
   Target,
   ArrowRight,
   MessageSquare,
-  Sparkles
+  Sparkles,
+  RefreshCw,
+  Maximize2,
+  Terminal,
+  AlertTriangle,
+  CheckCircle2,
+  Search
 } from 'lucide-react';
+import { 
+  ScatterChart, 
+  Scatter, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer, 
+  ReferenceLine,
+  ReferenceArea,
+  Cell
+} from 'recharts';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { GoogleGenAI } from "@google/genai";
+import ReactMarkdown from 'react-markdown';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-// Re-implement the score calculation for the overview
+// --- Configuration ---
+
+const scorecardConfig = [
+  { id: 'hy_spread', name: 'HY Spread', weight: 25, series: ['BAMLH0A0HYM2'], minRisk: 2.0, maxRisk: 5.0, unit: '%' },
+  { id: 'yield_curve', name: 'Yield Curve', weight: 20, series: ['T10Y2Y'], minRisk: 1.0, maxRisk: -0.5, unit: '%' },
+  { id: 'fin_stress', name: 'Fin. Stress', weight: 20, series: ['STLFSI4'], minRisk: -1.0, maxRisk: 1.0, unit: 'pts' },
+  { id: 'macro_activity', name: 'Macro Activity', weight: 15, series: ['CFNAI'], minRisk: 0.5, maxRisk: -0.5, unit: 'pts' },
+  { id: 'vix_term', name: 'VIX Term', weight: 10, series: ['VIXCLS', 'VXVCLS'], minRisk: 0.8, maxRisk: 1.0, unit: 'x' },
+  { id: 'real_yield', name: 'Real Yield', weight: 10, series: ['DFII10'], minRisk: 0.0, maxRisk: 2.0, unit: '%' }
+];
+
+// --- Helper Functions ---
+
+const getValue = (data: any[], id: string) => {
+  const item = data.find(d => d.id === id);
+  return item && item.value !== '.' && item.value !== null ? parseFloat(item.value) : null;
+};
+
 const calculateScore = (val: number | null, minRisk: number, maxRisk: number, weight: number) => {
   if (val === null || val === undefined || isNaN(val)) return 0;
   let pct = (val - minRisk) / (maxRisk - minRisk);
@@ -28,62 +65,49 @@ const calculateScore = (val: number | null, minRisk: number, maxRisk: number, we
   return Math.round(pct * weight);
 };
 
-const scorecardConfig = [
-  {
-    id: 'hy_spread',
-    name: 'HY Spread Widening',
-    weight: 25,
-    series: ['BAMLH0A0HYM2'],
-    calc: (vals: number[]) => vals[0],
-    minRisk: 2.0,
-    maxRisk: 5.0,
-  },
-  {
-    id: 'yield_curve',
-    name: 'Yield Curve Inversion',
-    weight: 20,
-    series: ['T10Y2Y'],
-    calc: (vals: number[]) => vals[0],
-    minRisk: 1.0,
-    maxRisk: -0.5,
-  },
-  {
-    id: 'fin_stress',
-    name: 'Financial Stress Index',
-    weight: 20,
-    series: ['STLFSI4'],
-    calc: (vals: number[]) => vals[0],
-    minRisk: -1.0,
-    maxRisk: 1.0,
-  },
-  {
-    id: 'macro_activity',
-    name: 'Macro Contraction',
-    weight: 15,
-    series: ['CFNAI'],
-    calc: (vals: number[]) => vals[0],
-    minRisk: 0.5,
-    maxRisk: -0.5,
-  },
-  {
-    id: 'vix_term',
-    name: 'VIX Term Structure',
-    weight: 10,
-    series: ['VIXCLS', 'VXVCLS'],
-    calc: (vals: number[]) => vals[0] / vals[1],
-    minRisk: 0.8,
-    maxRisk: 1.0,
-  },
-  {
-    id: 'real_yield',
-    name: 'Real Yields > 2.0%',
-    weight: 10,
-    series: ['DFII10'],
-    calc: (vals: number[]) => vals[0],
-    minRisk: 0.0,
-    maxRisk: 2.0,
-  }
-];
+// --- Components ---
+
+function VitalCard({ label, value, unit, trend, status = 'neutral' }: { label: string, value: string, unit: string, trend?: 'up' | 'down' | 'flat', status?: 'safe' | 'warning' | 'danger' | 'neutral' }) {
+  const statusColor = {
+    safe: 'text-emerald-400 border-emerald-500/20 bg-emerald-500/5',
+    warning: 'text-amber-400 border-amber-500/20 bg-amber-500/5',
+    danger: 'text-rose-400 border-rose-500/20 bg-rose-500/5',
+    neutral: 'text-white border-white/10 bg-white/5'
+  }[status];
+
+  return (
+    <div className={cn("flex flex-col p-4 rounded-xl border transition-all", statusColor)}>
+      <div className="text-[10px] uppercase tracking-widest opacity-60 mb-1">{label}</div>
+      <div className="flex items-baseline gap-1">
+        <span className="text-2xl font-mono font-light tracking-tighter">{value}</span>
+        <span className="text-xs font-mono opacity-50">{unit}</span>
+      </div>
+    </div>
+  );
+}
+
+function CompactModelCard({ title, icon: Icon, status, score, active, onClick }: { title: string, icon: any, status: string, score?: string, active?: boolean, onClick: () => void }) {
+  return (
+    <button 
+      onClick={onClick}
+      className={cn(
+        "flex items-center justify-between p-3 rounded-lg border text-left transition-all group",
+        active ? "bg-white/10 border-white/20" : "bg-[#141414] border-white/5 hover:bg-[#1a1a1a] hover:border-white/10"
+      )}
+    >
+      <div className="flex items-center gap-3">
+        <div className={cn("p-1.5 rounded-md", active ? "bg-white/10 text-white" : "bg-[#0a0a0a] text-white/40 group-hover:text-white/80")}>
+          <Icon className="w-4 h-4" />
+        </div>
+        <div>
+          <div className="text-xs font-medium text-white/90 group-hover:text-white">{title}</div>
+          <div className="text-[10px] text-white/40 uppercase tracking-wider">{status}</div>
+        </div>
+      </div>
+      {score && <div className="text-xs font-mono text-white/60">{score}</div>}
+    </button>
+  );
+}
 
 interface CockpitOverviewProps {
   setActiveModel: (model: string) => void;
@@ -92,384 +116,280 @@ interface CockpitOverviewProps {
 }
 
 export function CockpitOverview({ setActiveModel, fredData, loading }: CockpitOverviewProps) {
-  // Calculate BEATS score
+  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  // --- Data Extraction ---
+  const vix = getValue(fredData, 'VIXCLS');
+  const yield10y = getValue(fredData, 'DGS10');
+  const realYield = getValue(fredData, 'DFII10');
+  const hySpread = getValue(fredData, 'BAMLH0A0HYM2');
+  const yieldCurve = getValue(fredData, 'T10Y2Y');
+  const finStress = getValue(fredData, 'STLFSI4');
+  const macroActivity = getValue(fredData, 'CFNAI');
+
+  // --- BEATS Score Calculation ---
   const liveScorecard = scorecardConfig.map(config => {
-    const vals = config.series.map(id => {
-      const item = fredData.find(d => d.id === id);
-      return item && item.value !== '.' && item.value !== null ? parseFloat(item.value) : null;
-    });
-
+    const vals = config.series.map(id => getValue(fredData, id));
     const canCalc = vals.every(v => v !== null && !isNaN(v as number));
-    const liveValue = canCalc ? config.calc(vals as number[]) : null;
+    const liveValue = canCalc ? (config.id === 'vix_term' ? vals[0]! / vals[1]! : vals[0]!) : null;
     const currentScore = canCalc ? calculateScore(liveValue, config.minRisk, config.maxRisk, config.weight) : 0;
-
-    return { currentScore };
+    return { ...config, liveValue, currentScore };
   });
 
   const beatsScore = liveScorecard.reduce((acc, curr) => acc + curr.currentScore, 0);
-  const beatsRiskLevel = beatsScore >= 70 ? 'CRITICAL RISK' : beatsScore >= 40 ? 'ELEVATED RISK' : 'NORMAL';
-  const beatsColor = beatsScore >= 70 ? 'text-rose-500' : beatsScore >= 40 ? 'text-amber-500' : 'text-emerald-500';
+  const riskLevel = beatsScore >= 70 ? 'CRITICAL' : beatsScore >= 40 ? 'ELEVATED' : 'NORMAL';
+  const riskColor = beatsScore >= 70 ? 'text-rose-500' : beatsScore >= 40 ? 'text-amber-500' : 'text-emerald-500';
+
+  // --- AI Analysis ---
+  const generateInsight = async () => {
+    if (!process.env.GEMINI_API_KEY) return;
+    setIsAnalyzing(true);
+    try {
+      const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const model = genAI.models.getGenerativeModel({ model: 'gemini-2.5-flash' });
+      
+      const prompt = `
+        Act as a Chief Investment Officer. Analyze these market vitals and provide a concise, actionable "Cockpit Summary".
+        
+        Data:
+        - VIX: ${vix}
+        - 10Y Yield: ${yield10y}%
+        - Real Yield (10Y): ${realYield}%
+        - HY Spread: ${hySpread}%
+        - Yield Curve (10Y-2Y): ${yieldCurve}%
+        - Financial Stress Index: ${finStress}
+        - Macro Activity (CFNAI): ${macroActivity}
+        - BEATS Risk Score: ${beatsScore}/100 (${riskLevel})
+
+        Output Format (Markdown):
+        **Regime**: [2-3 words, e.g. "Late Cycle Slowdown"]
+        **Signal**: [Risk On / Risk Off / Neutral]
+        
+        **Analysis**:
+        [2 sentences on the most critical driver]
+
+        **Action**:
+        - [Bullet 1: Specific trade idea]
+        - [Bullet 2: Specific risk to hedge]
+      `;
+
+      const result = await model.generateContent(prompt);
+      setAiAnalysis(result.response.text());
+    } catch (error) {
+      console.error("AI Error:", error);
+      setAiAnalysis("**Error**: Failed to generate analysis. Please try again.");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  // Auto-generate on first load if data is ready
+  useEffect(() => {
+    if (!loading && !aiAnalysis && vix !== null) {
+      generateInsight();
+    }
+  }, [loading, vix]);
+
+  // --- Chart Data ---
+  const scatterData = [
+    { x: finStress || 0, y: macroActivity || 0, z: 1 }
+  ];
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="space-y-6 animate-in fade-in duration-500 pb-10">
       
-      {/* AI Macro Synthesis Section */}
-      <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/5 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none"></div>
+      {/* 1. Vitals Strip */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <VitalCard 
+          label="Market Fear (VIX)" 
+          value={vix?.toFixed(2) ?? '--'} 
+          unit="pts" 
+          status={vix && vix > 20 ? 'warning' : 'neutral'} 
+        />
+        <VitalCard 
+          label="Cost of Capital (10Y)" 
+          value={yield10y?.toFixed(2) ?? '--'} 
+          unit="%" 
+          status={yield10y && yield10y > 4.5 ? 'warning' : 'neutral'} 
+        />
+        <VitalCard 
+          label="Credit Risk (HY Spread)" 
+          value={hySpread?.toFixed(2) ?? '--'} 
+          unit="bps" 
+          status={hySpread && hySpread > 4.0 ? 'danger' : 'safe'} 
+        />
+        <VitalCard 
+          label="Real Yield (TIPS)" 
+          value={realYield?.toFixed(2) ?? '--'} 
+          unit="%" 
+          status={realYield && realYield > 2.0 ? 'danger' : 'neutral'} 
+        />
+      </div>
+
+      {/* 2. Main Control Panel */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
-            <Sparkles className="w-5 h-5 text-blue-400" />
+        {/* Left: Regime Radar */}
+        <div className="lg:col-span-4 bg-[#0f0f0f] border border-white/10 rounded-2xl p-5 flex flex-col">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-medium text-white/80 uppercase tracking-wider flex items-center gap-2">
+              <Target className="w-4 h-4 text-emerald-400" />
+              Regime Radar
+            </h3>
+            <div className="text-[10px] text-white/40 font-mono">CFNAI vs STLFSI</div>
           </div>
-          <div>
-            <h2 className="text-lg font-semibold text-white">AI Macro Synthesis</h2>
-            <p className="text-xs text-white/40">Real-time synthesis of all active models</p>
+          
+          <div className="flex-1 min-h-[250px] relative">
+            <ResponsiveContainer width="100%" height="100%">
+              <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                <XAxis type="number" dataKey="x" name="Fin Stress" domain={[-2, 2]} stroke="#666" tick={{fontSize: 10}} label={{ value: 'Stress', position: 'bottom', fill: '#666', fontSize: 10 }} />
+                <YAxis type="number" dataKey="y" name="Activity" domain={[-2, 2]} stroke="#666" tick={{fontSize: 10}} label={{ value: 'Growth', angle: -90, position: 'left', fill: '#666', fontSize: 10 }} />
+                <ReferenceLine x={0} stroke="#444" />
+                <ReferenceLine y={0} stroke="#444" />
+                
+                {/* Quadrant Backgrounds (Implicit via logic or explicit areas) */}
+                <ReferenceArea x1={-2} x2={0} y1={0} y2={2} fill="#10b981" fillOpacity={0.05} /> {/* Goldilocks */}
+                <ReferenceArea x1={0} x2={2} y1={0} y2={2} fill="#f59e0b" fillOpacity={0.05} /> {/* Overheating */}
+                <ReferenceArea x1={-2} x2={0} y1={-2} y2={0} fill="#3b82f6" fillOpacity={0.05} /> {/* Slowdown */}
+                <ReferenceArea x1={0} x2={2} y1={-2} y2={0} fill="#f43f5e" fillOpacity={0.05} /> {/* Crisis */}
+
+                <Scatter name="Current State" data={scatterData} fill="#fff">
+                  <Cell fill={riskLevel === 'CRITICAL' ? '#f43f5e' : riskLevel === 'ELEVATED' ? '#f59e0b' : '#10b981'} />
+                </Scatter>
+                <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={{ backgroundColor: '#111', borderColor: '#333', color: '#fff' }} />
+              </ScatterChart>
+            </ResponsiveContainer>
+            
+            {/* Labels */}
+            <div className="absolute top-2 left-2 text-[10px] text-emerald-500/50 font-bold uppercase">Goldilocks</div>
+            <div className="absolute top-2 right-2 text-[10px] text-amber-500/50 font-bold uppercase">Stagflation</div>
+            <div className="absolute bottom-8 left-2 text-[10px] text-blue-500/50 font-bold uppercase">Recovery</div>
+            <div className="absolute bottom-8 right-2 text-[10px] text-rose-500/50 font-bold uppercase">Crisis</div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="space-y-4">
-            <h3 className="text-sm font-medium text-white/80 uppercase tracking-wider border-b border-white/10 pb-2">Current Environment</h3>
-            <ul className="space-y-3">
-              <li className="flex items-start gap-3">
-                <div className="w-1.5 h-1.5 rounded-full bg-amber-500 mt-1.5 shrink-0"></div>
-                <p className="text-sm text-white/70 leading-relaxed">
-                  <strong className="text-white">Divergent Signals:</strong> The Regime Model indicates a "Green Light" (Aggressive) posture, but the BEATS Scorecard shows Elevated Risk ({beatsScore}/100) driven by yield curve inversion and financial stress.
-                </p>
-              </li>
-              <li className="flex items-start gap-3">
-                <div className="w-1.5 h-1.5 rounded-full bg-rose-500 mt-1.5 shrink-0"></div>
-                <p className="text-sm text-white/70 leading-relaxed">
-                  <strong className="text-white">Recession Warning:</strong> Probability remains elevated at 68.5% with the Sahm Rule triggered (0.52). Credit cycle is contracting with HY spreads widening to 4.2%.
-                </p>
-              </li>
-              <li className="flex items-start gap-3">
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1.5 shrink-0"></div>
-                <p className="text-sm text-white/70 leading-relaxed">
-                  <strong className="text-white">Sentiment Disconnect:</strong> Institutional sentiment (AlphaSense) is improving (+24.5) while retail sentiment (Twitter) is deteriorating (-15.2), suggesting a potential contrarian opportunity.
-                </p>
-              </li>
-            </ul>
+        {/* Center: AI Command Center */}
+        <div className="lg:col-span-5 bg-[#0f0f0f] border border-white/10 rounded-2xl p-1 relative overflow-hidden flex flex-col">
+          <div className="absolute top-0 right-0 w-full h-1 bg-gradient-to-r from-blue-500/0 via-blue-500/50 to-blue-500/0 opacity-20"></div>
+          
+          <div className="p-4 border-b border-white/5 flex justify-between items-center bg-[#141414]">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-blue-400" />
+              <span className="text-sm font-medium text-white/90">AI Analyst</span>
+            </div>
+            <button 
+              onClick={generateInsight}
+              disabled={isAnalyzing}
+              className="p-1.5 rounded-md hover:bg-white/10 text-white/50 hover:text-white transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={cn("w-3.5 h-3.5", isAnalyzing && "animate-spin")} />
+            </button>
           </div>
 
-          <div className="space-y-4">
-            <h3 className="text-sm font-medium text-white/80 uppercase tracking-wider border-b border-white/10 pb-2">Actionable Insights</h3>
-            <div className="bg-blue-500/5 border border-blue-500/10 rounded-xl p-4 space-y-3">
-              <div className="flex items-start gap-3">
-                <Target className="w-4 h-4 text-blue-400 mt-0.5 shrink-0" />
-                <p className="text-sm text-white/80 leading-relaxed">
-                  <strong>Maintain Equity Exposure, Shift Quality:</strong> Despite recession risks, the Regime Model's Green Light suggests staying invested. Rotate towards high-quality, cash-flowing sectors (Technology XLK showing +12.4% momentum).
-                </p>
+          <div className="flex-1 p-5 overflow-y-auto font-mono text-sm leading-relaxed relative">
+            {isAnalyzing ? (
+              <div className="absolute inset-0 flex items-center justify-center flex-col gap-3 bg-[#0f0f0f]/80 backdrop-blur-sm z-10">
+                <div className="w-8 h-8 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
+                <div className="text-xs text-blue-400 animate-pulse">SYNTHESIZING MARKET DATA...</div>
               </div>
-              <div className="flex items-start gap-3">
-                <ShieldAlert className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
-                <p className="text-sm text-white/80 leading-relaxed">
-                  <strong>Defensive Fixed Income:</strong> With the yield curve in a "Bear Steepening" regime and credit contracting, favor short-duration Treasuries over High Yield corporate bonds.
-                </p>
+            ) : aiAnalysis ? (
+              <div className="markdown-body text-white/80 space-y-4">
+                <ReactMarkdown>{aiAnalysis}</ReactMarkdown>
               </div>
-              <div className="flex items-start gap-3">
-                <Activity className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />
-                <p className="text-sm text-white/80 leading-relaxed">
-                  <strong>Monitor Liquidity:</strong> Fed assets are contracting ($7.4T). Watch for a reversal in the Liquidity Pulse to signal the next major risk-on leg.
-                </p>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-white/30 gap-2">
+                <Terminal className="w-8 h-8 opacity-50" />
+                <span className="text-xs">Awaiting Analysis...</span>
               </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right: Risk Monitor */}
+        <div className="lg:col-span-3 bg-[#0f0f0f] border border-white/10 rounded-2xl p-5 flex flex-col">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-sm font-medium text-white/80 uppercase tracking-wider flex items-center gap-2">
+              <ShieldAlert className={cn("w-4 h-4", riskColor)} />
+              Risk Monitor
+            </h3>
+            <div className={cn("text-xs font-bold px-2 py-0.5 rounded-full bg-white/5", riskColor)}>
+              {beatsScore}/100
             </div>
+          </div>
+
+          <div className="space-y-4 flex-1 overflow-y-auto pr-2 custom-scrollbar">
+            {liveScorecard.map((item) => (
+              <div key={item.id} className="group">
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-xs text-white/60 group-hover:text-white transition-colors">{item.name}</span>
+                  <span className={cn(
+                    "text-xs font-mono",
+                    item.currentScore > item.weight * 0.6 ? "text-rose-400" : "text-emerald-400"
+                  )}>
+                    {item.liveValue?.toFixed(2) ?? '--'}
+                  </span>
+                </div>
+                <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
+                  <div 
+                    className={cn(
+                      "h-full rounded-full",
+                      item.currentScore > item.weight * 0.6 ? "bg-rose-500" : "bg-emerald-500"
+                    )}
+                    style={{ width: `${(item.currentScore / item.weight) * 100}%` }}
+                  />
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-        
-        {/* BEATS Scorecard */}
-        <div 
-          onClick={() => setActiveModel('beats')}
-          className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6 flex flex-col cursor-pointer hover:bg-[#141414] hover:border-white/20 transition-all group relative overflow-hidden"
-        >
-          <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none group-hover:bg-emerald-500/10 transition-colors"></div>
-          <div className="flex justify-between items-start mb-6">
-            <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-              <Activity className="w-6 h-6 text-emerald-400" />
-            </div>
-            <ArrowRight className="w-5 h-5 text-white/20 group-hover:text-white/60 transition-colors group-hover:translate-x-1" />
-          </div>
-          <h3 className="text-lg font-semibold text-white mb-1">BEATS Scorecard</h3>
-          <p className="text-sm text-white/40 mb-6 flex-1">Bond Equity Allocation Timing Scorecard. Evaluates macro risk factors to determine optimal asset allocation.</p>
-          
-          <div className="bg-[#0a0a0a] rounded-xl p-4 border border-white/5 flex items-center justify-between">
-            <div>
-              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">Current Score</div>
-              <div className={cn("text-sm font-bold uppercase tracking-widest", beatsColor)}>
-                {loading ? 'CALCULATING...' : beatsRiskLevel}
-              </div>
-            </div>
-            <div className="text-3xl font-light font-mono text-white">
-              {loading ? '--' : beatsScore}<span className="text-lg text-white/30">/100</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Sector Scorecard */}
-        <div 
-          onClick={() => setActiveModel('sector')}
-          className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6 flex flex-col cursor-pointer hover:bg-[#141414] hover:border-white/20 transition-all group relative overflow-hidden"
-        >
-          <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none group-hover:bg-blue-500/10 transition-colors"></div>
-          <div className="flex justify-between items-start mb-6">
-            <div className="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
-              <BarChart3 className="w-6 h-6 text-blue-400" />
-            </div>
-            <ArrowRight className="w-5 h-5 text-white/20 group-hover:text-white/60 transition-colors group-hover:translate-x-1" />
-          </div>
-          <h3 className="text-lg font-semibold text-white mb-1">Sector Scorecard</h3>
-          <p className="text-sm text-white/40 mb-6 flex-1">Tracks momentum, relative strength, and capital flows across 11 GICS sectors to identify leadership.</p>
-          
-          <div className="bg-[#0a0a0a] rounded-xl p-4 border border-white/5 flex items-center justify-between">
-            <div>
-              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">Top Sector</div>
-              <div className="text-sm font-bold text-blue-400 uppercase tracking-widest">
-                Technology (XLK)
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">Momentum</div>
-              <div className="text-sm font-mono text-emerald-400">+12.4%</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Regime Model */}
-        <div 
-          onClick={() => setActiveModel('regime')}
-          className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6 flex flex-col cursor-pointer hover:bg-[#141414] hover:border-white/20 transition-all group relative overflow-hidden"
-        >
-          <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/5 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none group-hover:bg-purple-500/10 transition-colors"></div>
-          <div className="flex justify-between items-start mb-6">
-            <div className="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
-              <Cpu className="w-6 h-6 text-purple-400" />
-            </div>
-            <ArrowRight className="w-5 h-5 text-white/20 group-hover:text-white/60 transition-colors group-hover:translate-x-1" />
-          </div>
-          <h3 className="text-lg font-semibold text-white mb-1">Regime Model</h3>
-          <p className="text-sm text-white/40 mb-6 flex-1">4-State Hidden Markov Model detecting structural shifts in market volatility and trend.</p>
-          
-          <div className="bg-[#0a0a0a] rounded-xl p-4 border border-white/5 flex items-center justify-between">
-            <div>
-              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">Current State</div>
-              <div className="text-sm font-bold text-emerald-400 uppercase tracking-widest flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                Green Light
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">Posture</div>
-              <div className="text-sm font-medium text-white/80">Aggressive</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Inflation Tracker */}
-        <div 
-          onClick={() => setActiveModel('inflation')}
-          className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6 flex flex-col cursor-pointer hover:bg-[#141414] hover:border-white/20 transition-all group relative overflow-hidden"
-        >
-          <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none group-hover:bg-amber-500/10 transition-colors"></div>
-          <div className="flex justify-between items-start mb-6">
-            <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
-              <TrendingUp className="w-6 h-6 text-amber-400" />
-            </div>
-            <ArrowRight className="w-5 h-5 text-white/20 group-hover:text-white/60 transition-colors group-hover:translate-x-1" />
-          </div>
-          <h3 className="text-lg font-semibold text-white mb-1">Inflation Tracker</h3>
-          <p className="text-sm text-white/40 mb-6 flex-1">Real-time tracking of CPI, PCE, and leading inflation indicators like commodities and wages.</p>
-          
-          <div className="bg-[#0a0a0a] rounded-xl p-4 border border-white/5 flex items-center justify-between">
-            <div>
-              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">Regime</div>
-              <div className="text-sm font-bold text-amber-400 uppercase tracking-widest">
-                Elevated
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">10Y Breakeven</div>
-              <div className="text-sm font-mono text-amber-400">2.45%</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Credit Cycle */}
-        <div 
-          onClick={() => setActiveModel('credit')}
-          className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6 flex flex-col cursor-pointer hover:bg-[#141414] hover:border-white/20 transition-all group relative overflow-hidden"
-        >
-          <div className="absolute top-0 right-0 w-32 h-32 bg-rose-500/5 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none group-hover:bg-rose-500/10 transition-colors"></div>
-          <div className="flex justify-between items-start mb-6">
-            <div className="w-12 h-12 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center">
-              <Activity className="w-6 h-6 text-rose-400" />
-            </div>
-            <ArrowRight className="w-5 h-5 text-white/20 group-hover:text-white/60 transition-colors group-hover:translate-x-1" />
-          </div>
-          <h3 className="text-lg font-semibold text-white mb-1">Credit Cycle Sense</h3>
-          <p className="text-sm text-white/40 mb-6 flex-1">Analysis of HY spreads and bank lending standards to detect credit contraction or expansion.</p>
-          
-          <div className="bg-[#0a0a0a] rounded-xl p-4 border border-white/5 flex items-center justify-between">
-            <div>
-              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">Cycle</div>
-              <div className="text-sm font-bold text-rose-400 uppercase tracking-widest">
-                Contracting
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">HY Spread</div>
-              <div className="text-sm font-mono text-rose-400">4.2%</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Liquidity Pulse */}
-        <div 
-          onClick={() => setActiveModel('liquidity')}
-          className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6 flex flex-col cursor-pointer hover:bg-[#141414] hover:border-white/20 transition-all group relative overflow-hidden"
-        >
-          <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-500/5 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none group-hover:bg-yellow-500/10 transition-colors"></div>
-          <div className="flex justify-between items-start mb-6">
-            <div className="w-12 h-12 rounded-xl bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center">
-              <Zap className="w-6 h-6 text-yellow-400" />
-            </div>
-            <ArrowRight className="w-5 h-5 text-white/20 group-hover:text-white/60 transition-colors group-hover:translate-x-1" />
-          </div>
-          <h3 className="text-lg font-semibold text-white mb-1">Liquidity Pulse</h3>
-          <p className="text-sm text-white/40 mb-6 flex-1">Tracking Fed balance sheet (QT/QE) and M2 momentum to gauge market liquidity.</p>
-          
-          <div className="bg-[#0a0a0a] rounded-xl p-4 border border-white/5 flex items-center justify-between">
-            <div>
-              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">Pulse</div>
-              <div className="text-sm font-bold text-rose-400 uppercase tracking-widest">
-                Contracting
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">Fed Assets</div>
-              <div className="text-sm font-mono text-rose-400">$7.4T</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Economic Surprise */}
-        <div 
-          onClick={() => setActiveModel('surprise')}
-          className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6 flex flex-col cursor-pointer hover:bg-[#141414] hover:border-white/20 transition-all group relative overflow-hidden"
-        >
-          <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none group-hover:bg-emerald-500/10 transition-colors"></div>
-          <div className="flex justify-between items-start mb-6">
-            <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-              <Target className="w-6 h-6 text-emerald-400" />
-            </div>
-            <ArrowRight className="w-5 h-5 text-white/20 group-hover:text-white/60 transition-colors group-hover:translate-x-1" />
-          </div>
-          <h3 className="text-lg font-semibold text-white mb-1">Economic Surprise</h3>
-          <p className="text-sm text-white/40 mb-6 flex-1">Measuring the delta between actual economic data releases and analyst consensus.</p>
-          
-          <div className="bg-[#0a0a0a] rounded-xl p-4 border border-white/5 flex items-center justify-between">
-            <div>
-              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">ESI Score</div>
-              <div className="text-sm font-bold text-emerald-400 uppercase tracking-widest">
-                +14.2
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">Momentum</div>
-              <div className="text-sm font-mono text-emerald-400">Positive</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Recession Probability */}
-        <div 
-          onClick={() => setActiveModel('recession')}
-          className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6 flex flex-col cursor-pointer hover:bg-[#141414] hover:border-white/20 transition-all group relative overflow-hidden"
-        >
-          <div className="absolute top-0 right-0 w-32 h-32 bg-rose-500/5 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none group-hover:bg-rose-500/10 transition-colors"></div>
-          <div className="flex justify-between items-start mb-6">
-            <div className="w-12 h-12 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center">
-              <ShieldAlert className="w-6 h-6 text-rose-400" />
-            </div>
-            <ArrowRight className="w-5 h-5 text-white/20 group-hover:text-white/60 transition-colors group-hover:translate-x-1" />
-          </div>
-          <h3 className="text-lg font-semibold text-white mb-1">Recession Probability</h3>
-          <p className="text-sm text-white/40 mb-6 flex-1">Composite model aggregating yield curve, employment, and manufacturing data to forecast recessions.</p>
-          
-          <div className="bg-[#0a0a0a] rounded-xl p-4 border border-white/5 flex items-center justify-between">
-            <div>
-              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">Risk Level</div>
-              <div className="text-sm font-bold text-rose-400 uppercase tracking-widest">
-                Elevated
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">Probability</div>
-              <div className="text-sm font-mono text-rose-400">68.5%</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Yield Curve Model */}
-        <div 
-          onClick={() => setActiveModel('yield')}
-          className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6 flex flex-col cursor-pointer hover:bg-[#141414] hover:border-white/20 transition-all group relative overflow-hidden"
-        >
-          <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none group-hover:bg-amber-500/10 transition-colors"></div>
-          <div className="flex justify-between items-start mb-6">
-            <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
-              <ArrowRightLeft className="w-6 h-6 text-amber-400" />
-            </div>
-            <ArrowRight className="w-5 h-5 text-white/20 group-hover:text-white/60 transition-colors group-hover:translate-x-1" />
-          </div>
-          <h3 className="text-lg font-semibold text-white mb-1">Yield Curve Model</h3>
-          <p className="text-sm text-white/40 mb-6 flex-1">Analysis of Treasury term structure, tracking inversions, steepening, and flattening regimes.</p>
-          
-          <div className="bg-[#0a0a0a] rounded-xl p-4 border border-white/5 flex items-center justify-between">
-            <div>
-              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">Regime</div>
-              <div className="text-sm font-bold text-amber-400 uppercase tracking-widest">
-                Bear Steepening
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">10Y-2Y</div>
-              <div className="text-sm font-mono text-amber-400">-0.50%</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Market Sentiment */}
-        <div 
-          onClick={() => setActiveModel('sentiment')}
-          className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6 flex flex-col cursor-pointer hover:bg-[#141414] hover:border-white/20 transition-all group relative overflow-hidden"
-        >
-          <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none group-hover:bg-indigo-500/10 transition-colors"></div>
-          <div className="flex justify-between items-start mb-6">
-            <div className="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
-              <MessageSquare className="w-6 h-6 text-indigo-400" />
-            </div>
-            <ArrowRight className="w-5 h-5 text-white/20 group-hover:text-white/60 transition-colors group-hover:translate-x-1" />
-          </div>
-          <h3 className="text-lg font-semibold text-white mb-1">Market Sentiment</h3>
-          <p className="text-sm text-white/40 mb-6 flex-1">AlphaSense macro sentiment and Twitter/X market sentiment analysis.</p>
-          
-          <div className="bg-[#0a0a0a] rounded-xl p-4 border border-white/5 flex items-center justify-between">
-            <div>
-              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">Regime</div>
-              <div className="text-sm font-bold text-amber-400 uppercase tracking-widest">
-                Divergent
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">AlphaSense</div>
-              <div className="text-sm font-mono text-emerald-400">+24.5</div>
-            </div>
-          </div>
-        </div>
-
+      {/* 3. System Status / Navigation Grid */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <CompactModelCard 
+          title="Asset Allocation" 
+          icon={BarChart3} 
+          status="Tactical" 
+          active={false}
+          onClick={() => setActiveModel('allocation')} 
+        />
+        <CompactModelCard 
+          title="Sector Momentum" 
+          icon={Activity} 
+          status="Tech Lead" 
+          active={false}
+          onClick={() => setActiveModel('sector')} 
+        />
+        <CompactModelCard 
+          title="Regime Model" 
+          icon={Cpu} 
+          status="Expansion" 
+          active={false}
+          onClick={() => setActiveModel('regime')} 
+        />
+        <CompactModelCard 
+          title="Inflation" 
+          icon={TrendingUp} 
+          status="Sticky" 
+          active={false}
+          onClick={() => setActiveModel('inflation')} 
+        />
+        <CompactModelCard 
+          title="Liquidity" 
+          icon={Zap} 
+          status="Draining" 
+          active={false}
+          onClick={() => setActiveModel('liquidity')} 
+        />
+        <CompactModelCard 
+          title="Recession" 
+          icon={ShieldAlert} 
+          status="Elevated" 
+          active={false}
+          onClick={() => setActiveModel('recession')} 
+        />
       </div>
     </div>
   );
