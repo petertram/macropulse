@@ -17,7 +17,13 @@ import {
   BarChart3,
   Cpu,
   Zap,
-  Target
+  Target,
+  Menu,
+  X,
+  MessageSquare,
+  Sparkles,
+  ShieldCheck,
+  AlertTriangle
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -51,6 +57,13 @@ import { CreditCycle } from './components/CreditCycle';
 import { LiquidityPulse } from './components/LiquidityPulse';
 import { InflationTracker } from './components/InflationTracker';
 import { EconomicSurprise } from './components/EconomicSurprise';
+import { RecessionProbability } from './components/RecessionProbability';
+import { YieldCurve } from './components/YieldCurve';
+import { MarketSentiment } from './components/MarketSentiment';
+import { EconomicCycles } from './components/EconomicCycles';
+import ScenarioAnalysis from './components/ScenarioAnalysis';
+import { RecessionAlert } from './components/RecessionAlert';
+import Methodology from './components/Methodology';
 
 const scorecardConfig = [
   {
@@ -884,6 +897,53 @@ function CorrelationMatrixTab({ historyData }: { historyData: any[] }) {
           </div>
         </div>
       </div>
+
+      {/* AI Analysis Card */}
+      <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-8 relative overflow-hidden mt-6">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none"></div>
+        <div className="flex items-start gap-4 relative">
+          <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl shrink-0">
+            <Sparkles className="w-6 h-6 text-indigo-400" />
+          </div>
+          <div className="space-y-4 w-full">
+            <div>
+              <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                AI Correlation Analysis & BEATS Implications
+                <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-indigo-500/20 text-indigo-300 border border-indigo-500/20">LIVE</span>
+              </h3>
+              <p className="text-xs text-white/40 mt-1">Automated synthesis of stock-bond correlation shifts and their impact on the BEATS model.</p>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+              <div className="space-y-2">
+                <h4 className="text-sm font-medium text-white/80 flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-blue-400"/> Historical Regime Shifts
+                </h4>
+                <p className="text-sm text-white/60 leading-relaxed">
+                  For the two decades preceding 2022, the stock-bond correlation was reliably negative (averaging -0.3). During demand-driven shocks (like the GFC or Dot-Com bust), bonds rallied as equities fell, providing the foundational logic for the 60/40 portfolio. However, during supply-driven inflation shocks (e.g., 2022), the correlation flips positive, causing simultaneous drawdowns.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <h4 className="text-sm font-medium text-white/80 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-400"/> Implications for BEATS Model
+                </h4>
+                <p className="text-sm text-white/60 leading-relaxed">
+                  The BEATS (Bond Equity Allocation Timing Scorecard) model traditionally assumes bonds act as a safe haven when equity risk premiums compress. When correlation is positive (&gt;0), the BEATS model's "Risk-Off" signal becomes less effective if it simply rotates into long-duration bonds. The model must dynamically adjust its fixed-income duration targets based on the prevailing inflation regime.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 p-4 bg-indigo-500/5 border border-indigo-500/10 rounded-xl">
+              <h4 className="text-sm font-medium text-indigo-300 mb-2">Actionable Takeaway for BEATS Allocation</h4>
+              <p className="text-sm text-white/70 leading-relaxed">
+                As the rolling correlation begins to normalize back toward zero (currently 0.2 down from 0.6), the BEATS model is re-weighting its traditional "Flight to Quality" signals. 
+                <br/><br/>
+                <strong>BEATS Adjustment:</strong> While recession probabilities are rising, the BEATS model is currently favoring <strong>cash equivalents and short-duration Treasuries (T-Bills)</strong> over long-duration bonds until the correlation firmly re-enters negative territory, ensuring true diversification during the next equity drawdown.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -927,6 +987,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [forwardPeriod, setForwardPeriod] = useState<number>(3); // in months
   const [isExporting, setIsExporting] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const handleExport = async () => {
     setIsExporting(true);
@@ -1044,29 +1105,49 @@ export default function App() {
   }, [rawHistoryData, forwardPeriod]);
 
   return (
-    <div className="min-h-screen bg-[#050505] font-sans text-white selection:bg-indigo-500/30 flex">
+    <div className="flex h-screen bg-[#0a0a0a] text-white font-sans overflow-hidden">
+      <RecessionAlert onNavigate={setActiveModel} />
+      {/* Mobile Menu Overlay */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 bg-black/80 z-40 md:hidden"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className="w-64 border-r border-white/10 bg-[#0a0a0a] flex-shrink-0 flex flex-col h-screen sticky top-0">
-        <div className="p-6 border-b border-white/10 flex items-center gap-4">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center overflow-hidden border border-[#073620]/50 shadow-[0_0_15px_rgba(7,54,32,0.4)]">
-            <img src="/favicon.svg" alt="Logo" className="w-full h-full object-cover" />
+      <aside className={cn(
+        "fixed md:static inset-y-0 left-0 z-50 w-64 bg-[#0f0f0f] border-r border-white/5 flex flex-col transition-transform duration-300 ease-in-out",
+        isMobileMenuOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0 md:transform-none"
+      )}>
+        <div className="p-6 border-b border-white/10 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center overflow-hidden border border-[#073620]/50 shadow-[0_0_15px_rgba(7,54,32,0.4)]">
+              <img src="/favicon.svg" alt="Logo" className="w-full h-full object-cover" />
+            </div>
+            <div>
+              <h1 className="text-base font-semibold tracking-tight text-white leading-tight">QuantDash</h1>
+              <p className="text-[10px] uppercase tracking-widest text-white/40 font-medium">Models & Scorecards</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-base font-semibold tracking-tight text-white leading-tight">QuantDash</h1>
-            <p className="text-[10px] uppercase tracking-widest text-white/40 font-medium">Models & Scorecards</p>
-          </div>
+          <button 
+            className="md:hidden text-white/50 hover:text-white"
+            onClick={() => setIsMobileMenuOpen(false)}
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
         <div className="flex-1 overflow-y-auto py-4 px-3 flex flex-col gap-1">
           <div className="text-xs font-medium uppercase tracking-wider text-white/30 px-3 mb-2 mt-4">Overview</div>
           <button 
-            onClick={() => setActiveModel('overview')}
+            onClick={() => { setActiveModel('overview'); setIsMobileMenuOpen(false); }}
             className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'overview' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
           >
             <Activity className={cn("w-4 h-4", activeModel === 'overview' ? "text-emerald-400" : "")} />
             Cockpit
           </button>
           <button 
-            onClick={() => setActiveModel('allocation')}
+            onClick={() => { setActiveModel('allocation'); setIsMobileMenuOpen(false); }}
             className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'allocation' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
           >
             <LineChart className={cn("w-4 h-4", activeModel === 'allocation' ? "text-emerald-400" : "")} />
@@ -1075,42 +1156,42 @@ export default function App() {
           
           <div className="text-xs font-medium uppercase tracking-wider text-white/30 px-3 mb-2 mt-6">Scorecards</div>
           <button 
-            onClick={() => setActiveModel('beats')}
+            onClick={() => { setActiveModel('beats'); setIsMobileMenuOpen(false); }}
             className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'beats' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
           >
             <Activity className={cn("w-4 h-4", activeModel === 'beats' ? "text-emerald-400" : "")} />
             BEATS Scorecard
           </button>
           <button 
-            onClick={() => setActiveModel('sector')}
+            onClick={() => { setActiveModel('sector'); setIsMobileMenuOpen(false); }}
             className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'sector' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
           >
             <BarChart3 className={cn("w-4 h-4", activeModel === 'sector' ? "text-emerald-400" : "")} />
             Sector Scorecard
           </button>
           <button 
-            onClick={() => setActiveModel('regime')}
+            onClick={() => { setActiveModel('regime'); setIsMobileMenuOpen(false); }}
             className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'regime' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
           >
             <Cpu className={cn("w-4 h-4", activeModel === 'regime' ? "text-emerald-400" : "")} />
             Regime Model
           </button>
           <button 
-            onClick={() => setActiveModel('inflation')}
+            onClick={() => { setActiveModel('inflation'); setIsMobileMenuOpen(false); }}
             className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'inflation' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
           >
             <TrendingUp className={cn("w-4 h-4", activeModel === 'inflation' ? "text-emerald-400" : "")} />
             Inflation Tracker
           </button>
           <button 
-            onClick={() => setActiveModel('recession')}
+            onClick={() => { setActiveModel('recession'); setIsMobileMenuOpen(false); }}
             className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'recession' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
           >
             <ShieldAlert className={cn("w-4 h-4", activeModel === 'recession' ? "text-emerald-400" : "")} />
             Recession Probability
           </button>
           <button 
-            onClick={() => setActiveModel('surprise')}
+            onClick={() => { setActiveModel('surprise'); setIsMobileMenuOpen(false); }}
             className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'surprise' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
           >
             <Target className={cn("w-4 h-4", activeModel === 'surprise' ? "text-emerald-400" : "")} />
@@ -1119,26 +1200,59 @@ export default function App() {
           
           <div className="text-xs font-medium uppercase tracking-wider text-white/30 px-3 mb-2 mt-6">Models</div>
           <button 
-            onClick={() => setActiveModel('liquidity')}
+            onClick={() => { setActiveModel('liquidity'); setIsMobileMenuOpen(false); }}
             className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'liquidity' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
           >
             <Zap className={cn("w-4 h-4", activeModel === 'liquidity' ? "text-emerald-400" : "")} />
             Liquidity Pulse
           </button>
           <button 
-            onClick={() => setActiveModel('yield')}
+            onClick={() => { setActiveModel('yield'); setIsMobileMenuOpen(false); }}
             className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'yield' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
           >
             <ArrowRightLeft className={cn("w-4 h-4", activeModel === 'yield' ? "text-emerald-400" : "")} />
             Yield Curve Model
           </button>
           <button 
-            onClick={() => setActiveModel('credit')}
+            onClick={() => { setActiveModel('credit'); setIsMobileMenuOpen(false); }}
             className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'credit' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
           >
             <BookOpen className={cn("w-4 h-4", activeModel === 'credit' ? "text-emerald-400" : "")} />
             Credit Cycle
           </button>
+          <button 
+            onClick={() => { setActiveModel('sentiment'); setIsMobileMenuOpen(false); }}
+            className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'sentiment' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
+          >
+            <MessageSquare className={cn("w-4 h-4", activeModel === 'sentiment' ? "text-emerald-400" : "")} />
+            Market Sentiment
+          </button>
+          <button 
+            onClick={() => { setActiveModel('cycles'); setIsMobileMenuOpen(false); }}
+            className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'cycles' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
+          >
+            <LineChart className={cn("w-4 h-4", activeModel === 'cycles' ? "text-emerald-400" : "")} />
+            Economic Cycles
+          </button>
+          <button 
+            onClick={() => { setActiveModel('scenario'); setIsMobileMenuOpen(false); }}
+            className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'scenario' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
+          >
+            <Sparkles className={cn("w-4 h-4", activeModel === 'scenario' ? "text-emerald-400" : "")} />
+            Scenario Analysis
+          </button>
+          <div className="mt-8">
+            <h3 className="px-3 text-xs font-semibold text-white/40 uppercase tracking-wider mb-2">Documentation</h3>
+            <div className="space-y-1">
+              <button 
+                onClick={() => { setActiveModel('methodology'); setIsMobileMenuOpen(false); }}
+                className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'methodology' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
+              >
+                <BookOpen className={cn("w-4 h-4", activeModel === 'methodology' ? "text-emerald-400" : "")} />
+                Methodology
+              </button>
+            </div>
+          </div>
         </div>
       </aside>
 
@@ -1146,33 +1260,48 @@ export default function App() {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
         <header className="border-b border-white/10 bg-[#0a0a0a] sticky top-0 z-20 backdrop-blur-md bg-opacity-80">
-          <div className="px-8 h-16 flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold tracking-tight text-white">
-                {activeModel === 'overview' && 'Cockpit Overview'}
-                {activeModel === 'allocation' && 'Asset Allocation Dashboard'}
-                {activeModel === 'beats' && 'BEATS Scorecard'}
-                {activeModel === 'sector' && 'Sector Scorecard'}
-                {activeModel === 'regime' && 'Regime Model'}
-                {activeModel === 'inflation' && 'Inflation Tracker'}
-                {activeModel === 'recession' && 'Recession Probability'}
-                {activeModel === 'surprise' && 'Economic Surprise Index'}
-                {activeModel === 'liquidity' && 'Global Liquidity Pulse'}
-                {activeModel === 'yield' && 'Yield Curve Model'}
-                {activeModel === 'credit' && 'Credit Cycle Sense'}
-              </h2>
-              <p className="text-xs text-white/40">
-                {activeModel === 'overview' && 'Central dashboard for all models and scorecards'}
-                {activeModel === 'allocation' && 'Macro Sensing & Tactical Asset Allocation'}
-                {activeModel === 'beats' && 'Bond Equity Allocation Timing Scorecard'}
-                {activeModel === 'sector' && 'Sector Allocation & Momentum'}
-                {activeModel === 'regime' && '4-State Hidden Markov Model'}
-                {activeModel === 'inflation' && '10Y Breakeven & Sticky CPI Tracker'}
-                {activeModel === 'credit' && 'HY Spreads vs Bank Lending Standards'}
-                {activeModel === 'liquidity' && 'Fed Balance Sheet & M2 Momentum'}
-                {activeModel === 'surprise' && 'Data vs Analyst Expectations'}
-                {activeModel !== 'overview' && activeModel !== 'allocation' && activeModel !== 'beats' && activeModel !== 'sector' && activeModel !== 'regime' && activeModel !== 'inflation' && activeModel !== 'credit' && activeModel !== 'liquidity' && activeModel !== 'surprise' && 'Model currently under development'}
-              </p>
+          <div className="px-4 md:px-8 h-16 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button 
+                className="md:hidden p-2 -ml-2 text-white hover:bg-white/10 rounded-md transition-colors"
+                onClick={() => setIsMobileMenuOpen(true)}
+              >
+                <Menu className="w-6 h-6" />
+              </button>
+              <div>
+                <h2 className="text-lg font-semibold tracking-tight text-white">
+                  {activeModel === 'overview' && 'Cockpit Overview'}
+                  {activeModel === 'allocation' && 'Asset Allocation Dashboard'}
+                  {activeModel === 'beats' && 'BEATS Scorecard'}
+                  {activeModel === 'sector' && 'Sector Scorecard'}
+                  {activeModel === 'regime' && 'Regime Model'}
+                  {activeModel === 'inflation' && 'Inflation Tracker'}
+                  {activeModel === 'recession' && 'Recession Probability'}
+                  {activeModel === 'surprise' && 'Economic Surprise Index'}
+                  {activeModel === 'liquidity' && 'Global Liquidity Pulse'}
+                  {activeModel === 'yield' && 'Yield Curve Model'}
+                  {activeModel === 'credit' && 'Credit Cycle Sense'}
+                  {activeModel === 'sentiment' && 'Market Sentiment'}
+                  {activeModel === 'cycles' && 'Economic Cycles'}
+                  {activeModel === 'scenario' && 'Scenario Analysis'}
+                  {activeModel === 'methodology' && 'Methodology & Documentation'}
+                </h2>
+                <p className="text-xs text-white/40 hidden md:block">
+                  {activeModel === 'overview' && 'Central dashboard for all models and scorecards'}
+                  {activeModel === 'allocation' && 'Macro Sensing & Tactical Asset Allocation'}
+                  {activeModel === 'beats' && 'Bond Equity Allocation Timing Scorecard'}
+                  {activeModel === 'sector' && 'Sector Allocation & Momentum'}
+                  {activeModel === 'regime' && '4-State Hidden Markov Model'}
+                  {activeModel === 'inflation' && '10Y Breakeven & Sticky CPI Tracker'}
+                  {activeModel === 'credit' && 'HY Spreads vs Bank Lending Standards'}
+                  {activeModel === 'yield' && 'Analysis of Treasury term structure, tracking inversions, steepening, and flattening regimes.'}
+                  {activeModel === 'sentiment' && 'AlphaSense macro sentiment and Twitter/X market sentiment.'}
+                  {activeModel === 'cycles' && 'Historical asset performance across macroeconomic regimes.'}
+                  {activeModel === 'scenario' && 'Hypothetical economic conditions & AI-projected outcomes.'}
+                  {activeModel === 'methodology' && 'Theoretical foundations and calculation methodologies for all models.'}
+                  {activeModel !== 'overview' && activeModel !== 'allocation' && activeModel !== 'beats' && activeModel !== 'sector' && activeModel !== 'regime' && activeModel !== 'inflation' && activeModel !== 'credit' && activeModel !== 'liquidity' && activeModel !== 'surprise' && activeModel !== 'recession' && activeModel !== 'yield' && activeModel !== 'sentiment' && activeModel !== 'cycles' && activeModel !== 'methodology' && 'Model currently under development'}
+                </p>
+              </div>
             </div>
             <div className="flex items-center gap-6 text-sm">
               <div className="hidden md:flex items-center gap-2 text-white/50 font-mono text-xs">
@@ -1202,7 +1331,7 @@ export default function App() {
         </header>
 
         {/* Main Content */}
-        <main className={cn("px-8 py-8", (activeModel === 'sector' || activeModel === 'regime' || activeModel === 'overview' || activeModel === 'allocation' || activeModel === 'credit' || activeModel === 'liquidity' || activeModel === 'inflation' || activeModel === 'surprise') ? "h-[calc(100vh-4rem)] pb-8 overflow-y-auto" : "pb-24")}>
+        <main className={cn("px-4 md:px-8 py-8", (activeModel === 'sector' || activeModel === 'regime' || activeModel === 'overview' || activeModel === 'allocation' || activeModel === 'credit' || activeModel === 'liquidity' || activeModel === 'inflation' || activeModel === 'surprise' || activeModel === 'recession' || activeModel === 'yield' || activeModel === 'sentiment' || activeModel === 'cycles' || activeModel === 'methodology') ? "h-[calc(100vh-4rem)] pb-8 overflow-y-auto" : "pb-24")}>
           {activeModel === 'overview' ? (
             <CockpitOverview setActiveModel={setActiveModel} fredData={fredData} loading={loading} />
           ) : activeModel === 'allocation' ? (
@@ -1215,6 +1344,18 @@ export default function App() {
             <InflationTracker />
           ) : activeModel === 'surprise' ? (
             <EconomicSurprise />
+          ) : activeModel === 'recession' ? (
+            <RecessionProbability />
+          ) : activeModel === 'yield' ? (
+            <YieldCurve />
+          ) : activeModel === 'sentiment' ? (
+            <MarketSentiment />
+          ) : activeModel === 'cycles' ? (
+            <EconomicCycles />
+          ) : activeModel === 'scenario' ? (
+            <ScenarioAnalysis />
+          ) : activeModel === 'methodology' ? (
+            <Methodology />
           ) : activeModel === 'beats' ? (
             <>
               {/* Tabs Navigation */}

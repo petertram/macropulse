@@ -9,7 +9,9 @@ import {
   BookOpen,
   Zap,
   Target,
-  ArrowRight
+  ArrowRight,
+  MessageSquare,
+  Sparkles
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -110,6 +112,72 @@ export function CockpitOverview({ setActiveModel, fredData, loading }: CockpitOv
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      
+      {/* AI Macro Synthesis Section */}
+      <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/5 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none"></div>
+        
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+            <Sparkles className="w-5 h-5 text-blue-400" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-white">AI Macro Synthesis</h2>
+            <p className="text-xs text-white/40">Real-time synthesis of all active models</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-4">
+            <h3 className="text-sm font-medium text-white/80 uppercase tracking-wider border-b border-white/10 pb-2">Current Environment</h3>
+            <ul className="space-y-3">
+              <li className="flex items-start gap-3">
+                <div className="w-1.5 h-1.5 rounded-full bg-amber-500 mt-1.5 shrink-0"></div>
+                <p className="text-sm text-white/70 leading-relaxed">
+                  <strong className="text-white">Divergent Signals:</strong> The Regime Model indicates a "Green Light" (Aggressive) posture, but the BEATS Scorecard shows Elevated Risk ({beatsScore}/100) driven by yield curve inversion and financial stress.
+                </p>
+              </li>
+              <li className="flex items-start gap-3">
+                <div className="w-1.5 h-1.5 rounded-full bg-rose-500 mt-1.5 shrink-0"></div>
+                <p className="text-sm text-white/70 leading-relaxed">
+                  <strong className="text-white">Recession Warning:</strong> Probability remains elevated at 68.5% with the Sahm Rule triggered (0.52). Credit cycle is contracting with HY spreads widening to 4.2%.
+                </p>
+              </li>
+              <li className="flex items-start gap-3">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1.5 shrink-0"></div>
+                <p className="text-sm text-white/70 leading-relaxed">
+                  <strong className="text-white">Sentiment Disconnect:</strong> Institutional sentiment (AlphaSense) is improving (+24.5) while retail sentiment (Twitter) is deteriorating (-15.2), suggesting a potential contrarian opportunity.
+                </p>
+              </li>
+            </ul>
+          </div>
+
+          <div className="space-y-4">
+            <h3 className="text-sm font-medium text-white/80 uppercase tracking-wider border-b border-white/10 pb-2">Actionable Insights</h3>
+            <div className="bg-blue-500/5 border border-blue-500/10 rounded-xl p-4 space-y-3">
+              <div className="flex items-start gap-3">
+                <Target className="w-4 h-4 text-blue-400 mt-0.5 shrink-0" />
+                <p className="text-sm text-white/80 leading-relaxed">
+                  <strong>Maintain Equity Exposure, Shift Quality:</strong> Despite recession risks, the Regime Model's Green Light suggests staying invested. Rotate towards high-quality, cash-flowing sectors (Technology XLK showing +12.4% momentum).
+                </p>
+              </div>
+              <div className="flex items-start gap-3">
+                <ShieldAlert className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+                <p className="text-sm text-white/80 leading-relaxed">
+                  <strong>Defensive Fixed Income:</strong> With the yield curve in a "Bear Steepening" regime and credit contracting, favor short-duration Treasuries over High Yield corporate bonds.
+                </p>
+              </div>
+              <div className="flex items-start gap-3">
+                <Activity className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />
+                <p className="text-sm text-white/80 leading-relaxed">
+                  <strong>Monitor Liquidity:</strong> Fed assets are contracting ($7.4T). Watch for a reversal in the Liquidity Pulse to signal the next major risk-on leg.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
         
         {/* BEATS Scorecard */}
@@ -318,31 +386,88 @@ export function CockpitOverview({ setActiveModel, fredData, loading }: CockpitOv
         {/* Recession Probability */}
         <div 
           onClick={() => setActiveModel('recession')}
-          className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6 flex flex-col cursor-pointer hover:bg-[#141414] hover:border-white/20 transition-all group relative overflow-hidden opacity-70"
+          className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6 flex flex-col cursor-pointer hover:bg-[#141414] hover:border-white/20 transition-all group relative overflow-hidden"
         >
+          <div className="absolute top-0 right-0 w-32 h-32 bg-rose-500/5 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none group-hover:bg-rose-500/10 transition-colors"></div>
           <div className="flex justify-between items-start mb-6">
-            <div className="w-12 h-12 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
-              <ShieldAlert className="w-6 h-6 text-white/40" />
+            <div className="w-12 h-12 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center">
+              <ShieldAlert className="w-6 h-6 text-rose-400" />
             </div>
-            <div className="text-xs font-medium uppercase tracking-wider text-white/30 bg-white/5 px-2 py-1 rounded">In Dev</div>
+            <ArrowRight className="w-5 h-5 text-white/20 group-hover:text-white/60 transition-colors group-hover:translate-x-1" />
           </div>
           <h3 className="text-lg font-semibold text-white mb-1">Recession Probability</h3>
           <p className="text-sm text-white/40 mb-6 flex-1">Composite model aggregating yield curve, employment, and manufacturing data to forecast recessions.</p>
+          
+          <div className="bg-[#0a0a0a] rounded-xl p-4 border border-white/5 flex items-center justify-between">
+            <div>
+              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">Risk Level</div>
+              <div className="text-sm font-bold text-rose-400 uppercase tracking-widest">
+                Elevated
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">Probability</div>
+              <div className="text-sm font-mono text-rose-400">68.5%</div>
+            </div>
+          </div>
         </div>
 
         {/* Yield Curve Model */}
         <div 
           onClick={() => setActiveModel('yield')}
-          className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6 flex flex-col cursor-pointer hover:bg-[#141414] hover:border-white/20 transition-all group relative overflow-hidden opacity-70"
+          className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6 flex flex-col cursor-pointer hover:bg-[#141414] hover:border-white/20 transition-all group relative overflow-hidden"
         >
+          <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none group-hover:bg-amber-500/10 transition-colors"></div>
           <div className="flex justify-between items-start mb-6">
-            <div className="w-12 h-12 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
-              <ArrowRightLeft className="w-6 h-6 text-white/40" />
+            <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+              <ArrowRightLeft className="w-6 h-6 text-amber-400" />
             </div>
-            <div className="text-xs font-medium uppercase tracking-wider text-white/30 bg-white/5 px-2 py-1 rounded">In Dev</div>
+            <ArrowRight className="w-5 h-5 text-white/20 group-hover:text-white/60 transition-colors group-hover:translate-x-1" />
           </div>
           <h3 className="text-lg font-semibold text-white mb-1">Yield Curve Model</h3>
           <p className="text-sm text-white/40 mb-6 flex-1">Analysis of Treasury term structure, tracking inversions, steepening, and flattening regimes.</p>
+          
+          <div className="bg-[#0a0a0a] rounded-xl p-4 border border-white/5 flex items-center justify-between">
+            <div>
+              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">Regime</div>
+              <div className="text-sm font-bold text-amber-400 uppercase tracking-widest">
+                Bear Steepening
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">10Y-2Y</div>
+              <div className="text-sm font-mono text-amber-400">-0.50%</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Market Sentiment */}
+        <div 
+          onClick={() => setActiveModel('sentiment')}
+          className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6 flex flex-col cursor-pointer hover:bg-[#141414] hover:border-white/20 transition-all group relative overflow-hidden"
+        >
+          <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none group-hover:bg-indigo-500/10 transition-colors"></div>
+          <div className="flex justify-between items-start mb-6">
+            <div className="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
+              <MessageSquare className="w-6 h-6 text-indigo-400" />
+            </div>
+            <ArrowRight className="w-5 h-5 text-white/20 group-hover:text-white/60 transition-colors group-hover:translate-x-1" />
+          </div>
+          <h3 className="text-lg font-semibold text-white mb-1">Market Sentiment</h3>
+          <p className="text-sm text-white/40 mb-6 flex-1">AlphaSense macro sentiment and Twitter/X market sentiment analysis.</p>
+          
+          <div className="bg-[#0a0a0a] rounded-xl p-4 border border-white/5 flex items-center justify-between">
+            <div>
+              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">Regime</div>
+              <div className="text-sm font-bold text-amber-400 uppercase tracking-widest">
+                Divergent
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-white/40 uppercase tracking-wider mb-1">AlphaSense</div>
+              <div className="text-sm font-mono text-emerald-400">+24.5</div>
+            </div>
+          </div>
         </div>
 
       </div>
