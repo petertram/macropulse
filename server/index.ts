@@ -1,8 +1,6 @@
 import express from 'express';
-import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import YahooFinance from 'yahoo-finance2';
-
 dotenv.config();
 
 const yahooFinance = new YahooFinance();
@@ -41,7 +39,7 @@ app.get('/api/fred', async (req, res) => {
       'CFNAI',        // Chicago Fed National Activity Index
       'DFII10'        // 10Y Real Yield
     ];
-    
+
     const results = await Promise.all(seriesIds.map(async (id) => {
       try {
         const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${id}&api_key=${FRED_API_KEY}&file_type=json&sort_order=desc&limit=1`;
@@ -52,7 +50,7 @@ app.get('/api/fred', async (req, res) => {
         return { id, value: null, date: null };
       }
     }));
-    
+
     res.json(results);
   } catch (error) {
     console.error('FRED API Error:', error);
@@ -86,10 +84,10 @@ app.get('/api/fred/history', async (req, res) => {
     });
 
     try {
-      const spxData: any[] = await yahooFinance.historical('^SPX', { 
-        period1: '1990-01-01', 
+      const spxData: any[] = await yahooFinance.historical('^SPX', {
+        period1: '1990-01-01',
         period2: new Date().toISOString().split('T')[0],
-        interval: '1mo' 
+        interval: '1mo'
       });
       spxData.forEach((obs: any) => {
         const dateObj = new Date(obs.date);
@@ -110,14 +108,11 @@ app.get('/api/fred/history', async (req, res) => {
 });
 
 async function startServer() {
-  if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    app.use(express.static('dist'));
+  app.use(express.json());
+
+  // In production, you might still want Express to serve the built static site
+  if (process.env.NODE_ENV === 'production') {
+    app.use(express.static('../frontend/dist'));
   }
 
   app.listen(PORT, '0.0.0.0', () => {
