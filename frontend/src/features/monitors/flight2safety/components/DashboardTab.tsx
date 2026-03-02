@@ -1,9 +1,9 @@
 import React from 'react';
 import { ShieldAlert } from 'lucide-react';
-import { MetricCard } from '../../../shared/components/MetricCard';
-import { calculateScore, cn } from '../../../shared/utils';
+import { MetricCard } from '../../../../shared/components/MetricCard';
+import { calculateScore, cn } from '../../../../shared/utils';
 import { scorecardConfig } from '../constants';
-import { HistoryDataPoint } from '../../../shared/types';
+import { HistoryDataPoint } from '../../../../shared/types';
 
 interface DashboardTabProps {
     fredData: any[];

@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Activity, 
-  BarChart3, 
-  Cpu, 
-  TrendingUp, 
-  ShieldAlert, 
-  ArrowRightLeft, 
+import {
+  Activity,
+  BarChart3,
+  Cpu,
+  TrendingUp,
+  ShieldAlert,
+  ArrowRightLeft,
   BookOpen,
   Zap,
   Target,
@@ -19,14 +19,14 @@ import {
   CheckCircle2,
   Search
 } from 'lucide-react';
-import { 
-  ScatterChart, 
-  Scatter, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer, 
+import {
+  ScatterChart,
+  Scatter,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
   ReferenceLine,
   ReferenceArea,
   Cell
@@ -88,7 +88,7 @@ function VitalCard({ label, value, unit, trend, status = 'neutral' }: { label: s
 
 function CompactModelCard({ title, icon: Icon, status, score, active, onClick }: { title: string, icon: any, status: string, score?: string, active?: boolean, onClick: () => void }) {
   return (
-    <button 
+    <button
       onClick={onClick}
       className={cn(
         "flex items-center justify-between p-3 rounded-lg border text-left transition-all group",
@@ -128,7 +128,7 @@ export function CockpitOverview({ setActiveModel, fredData, loading }: CockpitOv
   const finStress = getValue(fredData, 'STLFSI4');
   const macroActivity = getValue(fredData, 'CFNAI');
 
-  // --- BEATS Score Calculation ---
+  // --- Score Calculation ---
   const liveScorecard = scorecardConfig.map(config => {
     const vals = config.series.map(id => getValue(fredData, id));
     const canCalc = vals.every(v => v !== null && !isNaN(v as number));
@@ -137,9 +137,9 @@ export function CockpitOverview({ setActiveModel, fredData, loading }: CockpitOv
     return { ...config, liveValue, currentScore };
   });
 
-  const beatsScore = liveScorecard.reduce((acc, curr) => acc + curr.currentScore, 0);
-  const riskLevel = beatsScore >= 70 ? 'CRITICAL' : beatsScore >= 40 ? 'ELEVATED' : 'NORMAL';
-  const riskColor = beatsScore >= 70 ? 'text-rose-500' : beatsScore >= 40 ? 'text-amber-500' : 'text-emerald-500';
+  const f2sScore = liveScorecard.reduce((acc, curr) => acc + curr.currentScore, 0);
+  const riskLevel = f2sScore >= 70 ? 'CRITICAL' : f2sScore >= 40 ? 'ELEVATED' : 'NORMAL';
+  const riskColor = f2sScore >= 70 ? 'text-rose-500' : f2sScore >= 40 ? 'text-amber-500' : 'text-emerald-500';
 
   // --- AI Analysis ---
   const generateInsight = async () => {
@@ -147,8 +147,7 @@ export function CockpitOverview({ setActiveModel, fredData, loading }: CockpitOv
     setIsAnalyzing(true);
     try {
       const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      const model = genAI.models.getGenerativeModel({ model: 'gemini-2.5-flash' });
-      
+
       const prompt = `
         Act as a Chief Investment Officer. Analyze these market vitals and provide a concise, actionable "Cockpit Summary".
         
@@ -160,7 +159,7 @@ export function CockpitOverview({ setActiveModel, fredData, loading }: CockpitOv
         - Yield Curve (10Y-2Y): ${yieldCurve}%
         - Financial Stress Index: ${finStress}
         - Macro Activity (CFNAI): ${macroActivity}
-        - BEATS Risk Score: ${beatsScore}/100 (${riskLevel})
+        - Flight2Safety Risk Score: ${f2sScore}/100 (${riskLevel})
 
         Output Format (Markdown):
         **Regime**: [2-3 words, e.g. "Late Cycle Slowdown"]
@@ -174,8 +173,13 @@ export function CockpitOverview({ setActiveModel, fredData, loading }: CockpitOv
         - [Bullet 2: Specific risk to hedge]
       `;
 
-      const result = await model.generateContent(prompt);
-      setAiAnalysis(result.response.text());
+      // @ts-ignore
+      const result = await genAI.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt
+      });
+      // @ts-ignore
+      setAiAnalysis(result.text || result.response?.text() || "Analysis generated, but no text found.");
     } catch (error) {
       console.error("AI Error:", error);
       setAiAnalysis("**Error**: Failed to generate analysis. Please try again.");
@@ -198,38 +202,38 @@ export function CockpitOverview({ setActiveModel, fredData, loading }: CockpitOv
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-10">
-      
+
       {/* 1. Vitals Strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <VitalCard 
-          label="Market Fear (VIX)" 
-          value={vix?.toFixed(2) ?? '--'} 
-          unit="pts" 
-          status={vix && vix > 20 ? 'warning' : 'neutral'} 
+        <VitalCard
+          label="Market Fear (VIX)"
+          value={vix?.toFixed(2) ?? '--'}
+          unit="pts"
+          status={vix && vix > 20 ? 'warning' : 'neutral'}
         />
-        <VitalCard 
-          label="Cost of Capital (10Y)" 
-          value={yield10y?.toFixed(2) ?? '--'} 
-          unit="%" 
-          status={yield10y && yield10y > 4.5 ? 'warning' : 'neutral'} 
+        <VitalCard
+          label="Cost of Capital (10Y)"
+          value={yield10y?.toFixed(2) ?? '--'}
+          unit="%"
+          status={yield10y && yield10y > 4.5 ? 'warning' : 'neutral'}
         />
-        <VitalCard 
-          label="Credit Risk (HY Spread)" 
-          value={hySpread?.toFixed(2) ?? '--'} 
-          unit="bps" 
-          status={hySpread && hySpread > 4.0 ? 'danger' : 'safe'} 
+        <VitalCard
+          label="Credit Risk (HY Spread)"
+          value={hySpread?.toFixed(2) ?? '--'}
+          unit="bps"
+          status={hySpread && hySpread > 4.0 ? 'danger' : 'safe'}
         />
-        <VitalCard 
-          label="Real Yield (TIPS)" 
-          value={realYield?.toFixed(2) ?? '--'} 
-          unit="%" 
-          status={realYield && realYield > 2.0 ? 'danger' : 'neutral'} 
+        <VitalCard
+          label="Real Yield (TIPS)"
+          value={realYield?.toFixed(2) ?? '--'}
+          unit="%"
+          status={realYield && realYield > 2.0 ? 'danger' : 'neutral'}
         />
       </div>
 
       {/* 2. Main Control Panel */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        
+
         {/* Left: Regime Radar */}
         <div className="lg:col-span-4 bg-[#0f0f0f] border border-white/10 rounded-2xl p-5 flex flex-col">
           <div className="flex items-center justify-between mb-4">
@@ -239,16 +243,16 @@ export function CockpitOverview({ setActiveModel, fredData, loading }: CockpitOv
             </h3>
             <div className="text-[10px] text-white/40 font-mono">CFNAI vs STLFSI</div>
           </div>
-          
+
           <div className="flex-1 min-h-[250px] relative">
             <ResponsiveContainer width="100%" height="100%">
               <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                <XAxis type="number" dataKey="x" name="Fin Stress" domain={[-2, 2]} stroke="#666" tick={{fontSize: 10}} label={{ value: 'Stress', position: 'bottom', fill: '#666', fontSize: 10 }} />
-                <YAxis type="number" dataKey="y" name="Activity" domain={[-2, 2]} stroke="#666" tick={{fontSize: 10}} label={{ value: 'Growth', angle: -90, position: 'left', fill: '#666', fontSize: 10 }} />
+                <XAxis type="number" dataKey="x" name="Fin Stress" domain={[-2, 2]} stroke="#666" tick={{ fontSize: 10 }} label={{ value: 'Stress', position: 'bottom', fill: '#666', fontSize: 10 }} />
+                <YAxis type="number" dataKey="y" name="Activity" domain={[-2, 2]} stroke="#666" tick={{ fontSize: 10 }} label={{ value: 'Growth', angle: -90, position: 'left', fill: '#666', fontSize: 10 }} />
                 <ReferenceLine x={0} stroke="#444" />
                 <ReferenceLine y={0} stroke="#444" />
-                
+
                 {/* Quadrant Backgrounds (Implicit via logic or explicit areas) */}
                 <ReferenceArea x1={-2} x2={0} y1={0} y2={2} fill="#10b981" fillOpacity={0.05} /> {/* Goldilocks */}
                 <ReferenceArea x1={0} x2={2} y1={0} y2={2} fill="#f59e0b" fillOpacity={0.05} /> {/* Overheating */}
@@ -261,7 +265,7 @@ export function CockpitOverview({ setActiveModel, fredData, loading }: CockpitOv
                 <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={{ backgroundColor: '#111', borderColor: '#333', color: '#fff' }} />
               </ScatterChart>
             </ResponsiveContainer>
-            
+
             {/* Labels */}
             <div className="absolute top-2 left-2 text-[10px] text-emerald-500/50 font-bold uppercase">Goldilocks</div>
             <div className="absolute top-2 right-2 text-[10px] text-amber-500/50 font-bold uppercase">Stagflation</div>
@@ -273,13 +277,13 @@ export function CockpitOverview({ setActiveModel, fredData, loading }: CockpitOv
         {/* Center: AI Command Center */}
         <div className="lg:col-span-5 bg-[#0f0f0f] border border-white/10 rounded-2xl p-1 relative overflow-hidden flex flex-col">
           <div className="absolute top-0 right-0 w-full h-1 bg-gradient-to-r from-blue-500/0 via-blue-500/50 to-blue-500/0 opacity-20"></div>
-          
+
           <div className="p-4 border-b border-white/5 flex justify-between items-center bg-[#141414]">
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-blue-400" />
               <span className="text-sm font-medium text-white/90">AI Analyst</span>
             </div>
-            <button 
+            <button
               onClick={generateInsight}
               disabled={isAnalyzing}
               className="p-1.5 rounded-md hover:bg-white/10 text-white/50 hover:text-white transition-colors disabled:opacity-50"
@@ -315,7 +319,7 @@ export function CockpitOverview({ setActiveModel, fredData, loading }: CockpitOv
               Risk Monitor
             </h3>
             <div className={cn("text-xs font-bold px-2 py-0.5 rounded-full bg-white/5", riskColor)}>
-              {beatsScore}/100
+              {f2sScore}/100
             </div>
           </div>
 
@@ -332,7 +336,7 @@ export function CockpitOverview({ setActiveModel, fredData, loading }: CockpitOv
                   </span>
                 </div>
                 <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
-                  <div 
+                  <div
                     className={cn(
                       "h-full rounded-full",
                       item.currentScore > item.weight * 0.6 ? "bg-rose-500" : "bg-emerald-500"
@@ -348,47 +352,47 @@ export function CockpitOverview({ setActiveModel, fredData, loading }: CockpitOv
 
       {/* 3. System Status / Navigation Grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <CompactModelCard 
-          title="Asset Allocation" 
-          icon={BarChart3} 
-          status="Tactical" 
+        <CompactModelCard
+          title="Asset Allocation"
+          icon={BarChart3}
+          status="Tactical"
           active={false}
-          onClick={() => setActiveModel('allocation')} 
+          onClick={() => setActiveModel('allocation')}
         />
-        <CompactModelCard 
-          title="Sector Momentum" 
-          icon={Activity} 
-          status="Tech Lead" 
+        <CompactModelCard
+          title="Sector Momentum"
+          icon={Activity}
+          status="Tech Lead"
           active={false}
-          onClick={() => setActiveModel('sector')} 
+          onClick={() => setActiveModel('sector')}
         />
-        <CompactModelCard 
-          title="Regime Model" 
-          icon={Cpu} 
-          status="Expansion" 
+        <CompactModelCard
+          title="Regime Model"
+          icon={Cpu}
+          status="Expansion"
           active={false}
-          onClick={() => setActiveModel('regime')} 
+          onClick={() => setActiveModel('regime')}
         />
-        <CompactModelCard 
-          title="Inflation" 
-          icon={TrendingUp} 
-          status="Sticky" 
+        <CompactModelCard
+          title="Inflation"
+          icon={TrendingUp}
+          status="Sticky"
           active={false}
-          onClick={() => setActiveModel('inflation')} 
+          onClick={() => setActiveModel('inflation')}
         />
-        <CompactModelCard 
-          title="Liquidity" 
-          icon={Zap} 
-          status="Draining" 
+        <CompactModelCard
+          title="Liquidity"
+          icon={Zap}
+          status="Draining"
           active={false}
-          onClick={() => setActiveModel('liquidity')} 
+          onClick={() => setActiveModel('liquidity')}
         />
-        <CompactModelCard 
-          title="Recession" 
-          icon={ShieldAlert} 
-          status="Elevated" 
+        <CompactModelCard
+          title="Recession"
+          icon={ShieldAlert}
+          status="Elevated"
           active={false}
-          onClick={() => setActiveModel('recession')} 
+          onClick={() => setActiveModel('recession')}
         />
       </div>
     </div>

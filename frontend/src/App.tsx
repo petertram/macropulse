@@ -21,29 +21,30 @@ import {
   MessageSquare,
   Sparkles,
   LineChart,
-  TrendingUp
+  TrendingUp,
+  RefreshCw
 } from 'lucide-react';
 
 import { cn } from './shared/utils';
-import { BeatsFeature } from './features/beats/BeatsFeature';
-import { scorecardConfig, appendixData } from './features/beats/constants';
+import { Flight2Safety } from './features/monitors/flight2safety/Flight2Safety';
+import { scorecardConfig, appendixData } from './features/monitors/flight2safety/constants';
 
 // Feature components
 import { Chatbot } from './features/ai-chat/Chatbot';
-import ScenarioAnalysis from './features/ai-chat/ScenarioAnalysis';
-import { SectorScorecard } from './features/sector/SectorScorecard';
-import { RegimeModel } from './features/regime/RegimeModel';
-import { CockpitOverview } from './features/macro/CockpitOverview';
-import { AssetAllocationDashboard } from './features/macro/AssetAllocationDashboard';
-import { CreditCycle } from './features/macro/CreditCycle';
-import { LiquidityPulse } from './features/macro/LiquidityPulse';
-import { InflationTracker } from './features/macro/InflationTracker';
-import { EconomicSurprise } from './features/macro/EconomicSurprise';
-import { RecessionProbability } from './features/macro/RecessionProbability';
-import { YieldCurve } from './features/macro/YieldCurve';
-import { MarketSentiment } from './features/macro/MarketSentiment';
-import { EconomicCycles } from './features/macro/EconomicCycles';
-import { RecessionAlert } from './features/macro/RecessionAlert';
+import ScenarioAnalysis from './features/analytics/ScenarioAnalysis';
+import { SectorScorecard } from './features/monitors/sector/SectorScorecard';
+import { RegimeModel } from './features/models/regime/RegimeModel';
+import { CockpitOverview } from './features/analytics/CockpitOverview';
+import { AssetAllocationDashboard } from './features/analytics/AssetAllocationDashboard';
+import { CreditCycle } from './features/models/CreditCycle';
+import { LiquidityPulse } from './features/monitors/LiquidityPulse';
+import { InflationTracker } from './features/monitors/InflationTracker';
+import { EconomicSurprise } from './features/monitors/EconomicSurprise';
+import { RecessionProbability } from './features/models/RecessionProbability';
+import { YieldCurve } from './features/models/YieldCurve';
+import { MarketSentiment } from './features/monitors/MarketSentiment';
+import { EconomicCycles } from './features/models/EconomicCycles';
+import { RecessionAlert } from './features/core/RecessionAlert';
 import Methodology from './features/documentation/Methodology';
 
 export default function App() {
@@ -52,7 +53,39 @@ export default function App() {
   const [rawHistoryData, setRawHistoryData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  const fetchFredData = () => {
+    setLoading(true);
+    fetch('/api/fred')
+      .then(res => res.json())
+      .then(data => setFredData(data))
+      .catch(err => console.error('Failed to fetch FRED data:', err));
+
+    fetch('/api/fred/history')
+      .then(res => res.json())
+      .then(data => {
+        setRawHistoryData(data);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error('Failed to fetch FRED history:', err);
+        setLoading(false);
+      });
+  };
+
+  const handleFredSync = async () => {
+    setIsSyncing(true);
+    try {
+      await fetch('/api/fred/sync', { method: 'POST' });
+      fetchFredData();
+    } catch (error) {
+      console.error('Failed to sync FRED data:', error);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const handleExport = async () => {
     setIsExporting(true);
@@ -92,7 +125,7 @@ export default function App() {
           pdf.addImage(imgData, 'JPEG', x, y, finalWidth, finalHeight);
         }
       }
-      pdf.save('BEATS_Scorecard.pdf');
+      pdf.save('Flight2Safety_Scorecard.pdf');
     } catch (error) {
       console.error('Export failed:', error);
     } finally {
@@ -101,21 +134,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    fetch('/api/fred')
-      .then(res => res.json())
-      .then(data => setFredData(data))
-      .catch(err => console.error('Failed to fetch FRED data:', err));
-
-    fetch('/api/fred/history')
-      .then(res => res.json())
-      .then(data => {
-        setRawHistoryData(data);
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error('Failed to fetch FRED history:', err);
-        setLoading(false);
-      });
+    fetchFredData();
   }, []);
 
   return (
@@ -139,7 +158,7 @@ export default function App() {
               <img src="/favicon.svg" alt="Logo" className="w-full h-full object-cover" />
             </div>
             <div>
-              <h1 className="text-base font-semibold tracking-tight text-white leading-tight">QuantDash</h1>
+              <h1 className="text-base font-semibold tracking-tight text-white leading-tight">MacroPulse</h1>
               <p className="text-[10px] uppercase tracking-widest text-white/40 font-medium">Models & Scorecards</p>
             </div>
           </div>
@@ -149,30 +168,11 @@ export default function App() {
         </div>
 
         <div className="flex-1 overflow-y-auto py-4 px-3 flex flex-col gap-1">
-          <div className="text-xs font-medium uppercase tracking-wider text-white/30 px-3 mb-2 mt-4">Overview</div>
-          <button
-            onClick={() => { setActiveModel('overview'); setIsMobileMenuOpen(false); }}
-            className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'overview' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
-          >
-            <Activity className={cn("w-4 h-4", activeModel === 'overview' ? "text-emerald-400" : "")} />
-            Cockpit
-          </button>
-          <button
-            onClick={() => { setActiveModel('allocation'); setIsMobileMenuOpen(false); }}
-            className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === 'allocation' ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
-          >
-            <LineChart className={cn("w-4 h-4", activeModel === 'allocation' ? "text-emerald-400" : "")} />
-            Asset Allocation
-          </button>
-
-          <div className="text-xs font-medium uppercase tracking-wider text-white/30 px-3 mb-2 mt-6">Scorecards</div>
+          <div className="text-xs font-medium uppercase tracking-wider text-white/30 px-3 mb-2 mt-4">Applied Analytics</div>
           {[
-            { id: 'beats', label: 'BEATS Scorecard', icon: Activity },
-            { id: 'sector', label: 'Sector Scorecard', icon: BarChart3 },
-            { id: 'regime', label: 'Regime Model', icon: Cpu },
-            { id: 'inflation', label: 'Inflation Tracker', icon: TrendingUp },
-            { id: 'recession', label: 'Recession Probability', icon: ShieldAlert },
-            { id: 'surprise', label: 'Economic Surprise', icon: Target },
+            { id: 'overview', label: 'Cockpit Overview', icon: Activity },
+            { id: 'allocation', label: 'Asset Allocation', icon: LineChart },
+            { id: 'scenario', label: 'Scenario Analysis', icon: Sparkles },
           ].map(item => (
             <button
               key={item.id}
@@ -184,14 +184,32 @@ export default function App() {
             </button>
           ))}
 
-          <div className="text-xs font-medium uppercase tracking-wider text-white/30 px-3 mb-2 mt-6">Models</div>
+          <div className="text-xs font-medium uppercase tracking-wider text-white/30 px-3 mb-2 mt-6">Monitors & Scorecards</div>
           {[
+            { id: 'flight2safety', label: 'Flight2Safety Scorecard', icon: Activity },
+            { id: 'sector', label: 'Sector Scorecard', icon: BarChart3 },
+            { id: 'inflation', label: 'Inflation Tracker', icon: TrendingUp },
+            { id: 'surprise', label: 'Economic Surprise', icon: Target },
             { id: 'liquidity', label: 'Liquidity Pulse', icon: Zap },
+            { id: 'sentiment', label: 'Market Sentiment', icon: MessageSquare },
+          ].map(item => (
+            <button
+              key={item.id}
+              onClick={() => { setActiveModel(item.id); setIsMobileMenuOpen(false); }}
+              className={cn("flex items-center gap-3 px-3 py-2 rounded-md font-medium text-sm transition-colors", activeModel === item.id ? "bg-[#1f1f1f] border border-white/5 text-white" : "text-white/50 hover:text-white hover:bg-white/5")}
+            >
+              <item.icon className={cn("w-4 h-4", activeModel === item.id ? "text-emerald-400" : "")} />
+              {item.label}
+            </button>
+          ))}
+
+          <div className="text-xs font-medium uppercase tracking-wider text-white/30 px-3 mb-2 mt-6">Predictive Models</div>
+          {[
+            { id: 'regime', label: 'Regime Model', icon: Cpu },
+            { id: 'recession', label: 'Recession Probability', icon: ShieldAlert },
             { id: 'yield', label: 'Yield Curve Model', icon: ArrowRightLeft },
             { id: 'credit', label: 'Credit Cycle', icon: BookOpen },
-            { id: 'sentiment', label: 'Market Sentiment', icon: MessageSquare },
             { id: 'cycles', label: 'Economic Cycles', icon: LineChart },
-            { id: 'scenario', label: 'Scenario Analysis', icon: Sparkles },
           ].map(item => (
             <button
               key={item.id}
@@ -226,15 +244,23 @@ export default function App() {
               <div>
                 <h2 className="text-lg font-semibold tracking-tight text-white">
                   {activeModel === 'overview' ? 'Cockpit Overview' :
-                    activeModel === 'beats' ? 'BEATS Scorecard' :
+                    activeModel === 'flight2safety' ? 'Flight2Safety Scorecard' :
                       activeModel.charAt(0).toUpperCase() + activeModel.slice(1).replace('-', ' ') + ' Dashboard'}
                 </h2>
               </div>
             </div>
             <div className="flex items-center gap-6 text-sm">
-              <div className="hidden md:flex items-center gap-2 text-white/50 font-mono text-xs">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse"></span>
-                FRED_SYNC_ACTIVE
+              <div className="hidden md:flex items-center gap-2">
+                <button
+                  onClick={handleFredSync}
+                  disabled={isSyncing}
+                  className={cn("text-xs font-medium uppercase tracking-wider flex items-center gap-2 px-3 py-1.5 rounded-md border transition-colors",
+                    isSyncing ? "text-emerald-500/50 border-emerald-500/10 bg-emerald-500/5" : "text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10"
+                  )}
+                >
+                  <RefreshCw className={cn("w-3 h-3", isSyncing && "animate-spin")} />
+                  {isSyncing ? 'Syncing...' : 'Sync FRED Data'}
+                </button>
               </div>
               <button
                 onClick={handleExport}
@@ -261,7 +287,7 @@ export default function App() {
           {activeModel === 'cycles' && <EconomicCycles />}
           {activeModel === 'scenario' && <ScenarioAnalysis />}
           {activeModel === 'methodology' && <Methodology />}
-          {activeModel === 'beats' && <BeatsFeature fredData={fredData} rawHistoryData={rawHistoryData} loading={loading} />}
+          {activeModel === 'flight2safety' && <Flight2Safety fredData={fredData} rawHistoryData={rawHistoryData} loading={loading} />}
           {activeModel === 'sector' && <SectorScorecard />}
           {activeModel === 'regime' && <RegimeModel />}
         </main>

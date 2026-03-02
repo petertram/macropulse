@@ -1,24 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  TrendingUp, 
-  TrendingDown, 
-  Activity, 
-  Zap, 
-  Target, 
+import {
+  TrendingUp,
+  TrendingDown,
+  Activity,
+  Zap,
+  Target,
   Sparkles,
   AlertTriangle,
   RefreshCw,
   ArrowRight
 } from 'lucide-react';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer, 
-  Cell 
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Cell
 } from 'recharts';
 import { GoogleGenAI } from "@google/genai";
 
@@ -45,7 +45,7 @@ export default function ScenarioAnalysis() {
     // Equity return = SPX Growth - Inflation adjustment
     // Bond return = Yield - (Duration * Change in Yield) - Inflation adjustment
     // For simplicity, we'll assume these are "expected returns" based on inputs
-    
+
     const equityReturn = inputs.spxGrowth - (inputs.inflation > 4 ? (inputs.inflation - 4) * 2 : 0);
     const bondReturn = inputs.yield10y - (inputs.inflation > 3 ? (inputs.inflation - 3) * 0.5 : 0);
     const realReturnEquity = equityReturn - inputs.inflation;
@@ -78,7 +78,7 @@ export default function ScenarioAnalysis() {
         1. The likely stock-bond correlation in this regime.
         2. Which asset class (Equities vs. Bonds) is more attractive on a risk-adjusted basis.
         3. The primary risk to this scenario (e.g., stagflation, overheating, or deflation).
-        4. A specific tactical recommendation for the BEATS model.
+        4. A specific tactical recommendation for the Flight2Safety model.
         
         Format the output in clean Markdown.
       `;
@@ -107,17 +107,17 @@ export default function ScenarioAnalysis() {
               <Zap className="w-5 h-5 text-amber-400" />
               Scenario Parameters
             </h3>
-            
+
             <div className="space-y-6">
               <div className="space-y-2">
                 <div className="flex justify-between">
                   <label className="text-sm text-white/60">Inflation (CPI %)</label>
                   <span className="text-sm font-mono text-emerald-400">{inputs.inflation}%</span>
                 </div>
-                <input 
+                <input
                   type="range" min="-2" max="15" step="0.1"
                   value={inputs.inflation}
-                  onChange={(e) => setInputs({...inputs, inflation: parseFloat(e.target.value)})}
+                  onChange={(e) => setInputs({ ...inputs, inflation: parseFloat(e.target.value) })}
                   className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-emerald-500"
                 />
               </div>
@@ -127,10 +127,10 @@ export default function ScenarioAnalysis() {
                   <label className="text-sm text-white/60">10Y Treasury Yield (%)</label>
                   <span className="text-sm font-mono text-blue-400">{inputs.yield10y}%</span>
                 </div>
-                <input 
+                <input
                   type="range" min="0" max="10" step="0.05"
                   value={inputs.yield10y}
-                  onChange={(e) => setInputs({...inputs, yield10y: parseFloat(e.target.value)})}
+                  onChange={(e) => setInputs({ ...inputs, yield10y: parseFloat(e.target.value) })}
                   className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
                 />
               </div>
@@ -140,10 +140,10 @@ export default function ScenarioAnalysis() {
                   <label className="text-sm text-white/60">SPX Earnings Growth (%)</label>
                   <span className="text-sm font-mono text-emerald-400">{inputs.spxGrowth}%</span>
                 </div>
-                <input 
+                <input
                   type="range" min="-20" max="40" step="0.5"
                   value={inputs.spxGrowth}
-                  onChange={(e) => setInputs({...inputs, spxGrowth: parseFloat(e.target.value)})}
+                  onChange={(e) => setInputs({ ...inputs, spxGrowth: parseFloat(e.target.value) })}
                   className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-emerald-500"
                 />
               </div>
@@ -153,15 +153,15 @@ export default function ScenarioAnalysis() {
                   <label className="text-sm text-white/60">Credit Spreads (HY %)</label>
                   <span className="text-sm font-mono text-amber-400">{inputs.creditSpread}%</span>
                 </div>
-                <input 
+                <input
                   type="range" min="1" max="15" step="0.1"
                   value={inputs.creditSpread}
-                  onChange={(e) => setInputs({...inputs, creditSpread: parseFloat(e.target.value)})}
+                  onChange={(e) => setInputs({ ...inputs, creditSpread: parseFloat(e.target.value) })}
                   className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-amber-500"
                 />
               </div>
 
-              <button 
+              <button
                 onClick={generateAICommentary}
                 disabled={loading}
                 className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-500/50 text-black font-bold rounded-xl transition-all flex items-center justify-center gap-2 mt-4 shadow-lg shadow-emerald-500/20"
@@ -178,25 +178,25 @@ export default function ScenarioAnalysis() {
               Quick Presets
             </h4>
             <div className="grid grid-cols-2 gap-2">
-              <button 
+              <button
                 onClick={() => setInputs({ inflation: 8.5, yield10y: 4.5, spxGrowth: -5, creditSpread: 6 })}
                 className="text-[10px] py-2 px-3 bg-white/5 hover:bg-white/10 rounded-lg text-white/70 transition-colors"
               >
                 Stagflation (1970s)
               </button>
-              <button 
+              <button
                 onClick={() => setInputs({ inflation: 1.8, yield10y: 2.1, spxGrowth: 12, creditSpread: 3.5 })}
                 className="text-[10px] py-2 px-3 bg-white/5 hover:bg-white/10 rounded-lg text-white/70 transition-colors"
               >
                 Goldilocks (2010s)
               </button>
-              <button 
+              <button
                 onClick={() => setInputs({ inflation: 4.2, yield10y: 5.5, spxGrowth: 15, creditSpread: 2.5 })}
                 className="text-[10px] py-2 px-3 bg-white/5 hover:bg-white/10 rounded-lg text-white/70 transition-colors"
               >
                 Late Cycle Heat
               </button>
-              <button 
+              <button
                 onClick={() => setInputs({ inflation: -0.5, yield10y: 1.2, spxGrowth: -15, creditSpread: 8.5 })}
                 className="text-[10px] py-2 px-3 bg-white/5 hover:bg-white/10 rounded-lg text-white/70 transition-colors"
               >
@@ -213,14 +213,14 @@ export default function ScenarioAnalysis() {
               <Activity className="w-5 h-5 text-emerald-400" />
               Projected Performance (1Y Fwd)
             </h3>
-            
+
             <div className="h-[300px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={projections} layout="vertical" margin={{ left: 20, right: 40 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" horizontal={false} />
                   <XAxis type="number" stroke="#ffffff40" fontSize={12} unit="%" />
                   <YAxis dataKey="name" type="category" stroke="#ffffff40" fontSize={12} width={100} />
-                  <Tooltip 
+                  <Tooltip
                     contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #ffffff10', borderRadius: '8px' }}
                     itemStyle={{ color: '#fff' }}
                   />
@@ -248,7 +248,7 @@ export default function ScenarioAnalysis() {
             <div className="absolute top-0 right-0 p-4">
               <Sparkles className="w-12 h-12 text-emerald-500/10" />
             </div>
-            
+
             <h3 className="text-lg font-semibold text-white mb-6 flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-emerald-400" />
               AI Strategic Analysis

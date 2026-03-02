@@ -1,4 +1,4 @@
-import { ScorecardConfig, AppendixItem } from '../shared/types';
+import { ScorecardConfig, AppendixItem } from '../../../shared/types';
 
 export const scorecardConfig: ScorecardConfig[] = [
     {

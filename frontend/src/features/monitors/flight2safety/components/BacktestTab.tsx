@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ArrowRightLeft } from 'lucide-react';
 import { ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Legend, ReferenceLine, Area, Line } from 'recharts';
-import { calculateScore, cn } from '../../../shared/utils';
+import { calculateScore, cn } from '../../../../shared/utils';
 import { scorecardConfig } from '../constants';
-import { HistoryDataPoint } from '../../../shared/types';
+import { HistoryDataPoint } from '../../../../shared/types';
 
 interface BacktestTabProps {
     historyData: HistoryDataPoint[];

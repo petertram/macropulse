@@ -1,9 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { TrendingUp } from 'lucide-react';
 import { ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Legend, ReferenceLine, Area, Line } from 'recharts';
-import { cn } from '../../../shared/utils';
+import { cn } from '../../../../shared/utils';
 import { scorecardConfig } from '../constants';
-import { HistoryDataPoint } from '../../../shared/types';
+import { HistoryDataPoint } from '../../../../shared/types';
 
 interface PeriodSelectorProps {
     forwardPeriod: number;

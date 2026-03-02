@@ -1,12 +1,30 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import YahooFinance from 'yahoo-finance2';
+import Database from 'better-sqlite3';
+
 dotenv.config();
 
+const db = new Database('market_data.db');
 const yahooFinance = new YahooFinance();
 const app = express();
 const PORT = 3000;
 const FRED_API_KEY = process.env.FRED_API_KEY || '4030789b3b214aeade239a08babaa32a';
+
+app.use(express.json());
+
+// Initialize SQLite tables
+db.exec(`
+  CREATE TABLE IF NOT EXISTS fred_latest (
+    id TEXT PRIMARY KEY,
+    value REAL,
+    date TEXT
+  );
+  CREATE TABLE IF NOT EXISTS fred_history (
+    month_key TEXT PRIMARY KEY,
+    data TEXT
+  );
+`);
 
 async function fetchWithRetry(url: string, retries = 3, delay = 1000): Promise<any> {
   for (let i = 0; i < retries; i++) {
@@ -26,21 +44,38 @@ async function fetchWithRetry(url: string, retries = 3, delay = 1000): Promise<a
   }
 }
 
-app.get('/api/fred', async (req, res) => {
+app.get('/api/fred', (req, res) => {
   try {
-    // Expanded series for a fully live scorecard
-    const seriesIds = [
-      'BAMLH0A0HYM2', // HY Spread
-      'T10Y2Y',       // Yield Curve
-      'VIXCLS',       // VIX 1M
-      'VXVCLS',       // VIX 3M
-      'DGS10',        // 10Y Treasury
-      'STLFSI4',      // Financial Stress Index
-      'CFNAI',        // Chicago Fed National Activity Index
-      'DFII10'        // 10Y Real Yield
+    const stmt = db.prepare('SELECT id, value, date FROM fred_latest');
+    const results = stmt.all();
+    res.json(results);
+  } catch (error) {
+    console.error('Database Error:', error);
+    res.status(500).json({ error: 'Failed to read from local database' });
+  }
+});
+
+app.get('/api/fred/history', (req, res) => {
+  try {
+    const stmt = db.prepare('SELECT data FROM fred_history ORDER BY month_key ASC');
+    const results = stmt.all().map((r: any) => JSON.parse(r.data));
+    res.json(results);
+  } catch (error) {
+    console.error('Database Error:', error);
+    res.status(500).json({ error: 'Failed to read from local database' });
+  }
+});
+
+// Manual Sync Endpoint
+app.post('/api/fred/sync', async (req, res) => {
+  try {
+    // 1. Sync Latest Observations
+    const latestIds = [
+      'BAMLH0A0HYM2', 'T10Y2Y', 'VIXCLS', 'VXVCLS',
+      'DGS10', 'STLFSI4', 'CFNAI', 'DFII10'
     ];
 
-    const results = await Promise.all(seriesIds.map(async (id) => {
+    const latestResults = await Promise.all(latestIds.map(async (id) => {
       try {
         const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${id}&api_key=${FRED_API_KEY}&file_type=json&sort_order=desc&limit=1`;
         const data = await fetchWithRetry(url);
@@ -51,31 +86,31 @@ app.get('/api/fred', async (req, res) => {
       }
     }));
 
-    res.json(results);
-  } catch (error) {
-    console.error('FRED API Error:', error);
-    res.status(500).json({ error: 'Failed to fetch FRED data' });
-  }
-});
+    const insertLatest = db.prepare('INSERT OR REPLACE INTO fred_latest (id, value, date) VALUES (@id, @value, @date)');
+    const insertLatestMany = db.transaction((items: any[]) => {
+      for (const item of items) {
+        if (item.value !== null && item.value !== '.') {
+          insertLatest.run({ id: item.id, value: parseFloat(item.value), date: item.date });
+        }
+      }
+    });
+    insertLatestMany(latestResults);
 
-app.get('/api/fred/history', async (req, res) => {
-  try {
-    const seriesIds = ['DGS10', 'BAMLH0A0HYM2', 'T10Y2Y', 'STLFSI4', 'CFNAI', 'VIXCLS', 'VXVCLS', 'DFII10'];
+    // 2. Sync Historical Data
     const startDate = '1990-01-01';
-
-    const results = await Promise.all(seriesIds.map(async (id) => {
+    const historyResults = await Promise.all(latestIds.map(async (id) => {
       try {
         const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${id}&api_key=${FRED_API_KEY}&file_type=json&frequency=m&aggregation_method=eop&observation_start=${startDate}`;
         const data = await fetchWithRetry(url);
         return { id, observations: data.observations || [] };
       } catch (err) {
-        console.warn(`Error fetching history for ${id} after retries:`, err);
+        console.warn(`Error fetching history for ${id}:`, err);
         return { id, observations: [] };
       }
     }));
 
     const dateMap: Record<string, any> = {};
-    results.forEach(series => {
+    historyResults.forEach(series => {
       series.observations.forEach((obs: any) => {
         const monthKey = obs.date.substring(0, 7);
         if (!dateMap[monthKey]) dateMap[monthKey] = { date: obs.date };
@@ -96,21 +131,25 @@ app.get('/api/fred/history', async (req, res) => {
         dateMap[monthKey]['SP500'] = obs.close;
       });
     } catch (err: any) {
-      console.error('Yahoo Finance Error:', err.message, err.errors);
+      console.error('Yahoo Finance Error:', err.message);
     }
 
-    const alignedData = Object.values(dateMap).sort((a: any, b: any) => a.date.localeCompare(b.date));
-    res.json(alignedData);
+    const insertHistory = db.prepare('INSERT OR REPLACE INTO fred_history (month_key, data) VALUES (@month_key, @data)');
+    const insertHistoryMany = db.transaction((entries: any) => {
+      for (const [monthKey, data] of Object.entries(entries)) {
+        insertHistory.run({ month_key: monthKey, data: JSON.stringify(data) });
+      }
+    });
+    insertHistoryMany(dateMap);
+
+    res.json({ success: true, message: 'FRED and Yahoo Data synced to SQLite' });
   } catch (error) {
-    console.error('FRED History API Error:', error);
-    res.status(500).json({ error: 'Failed to fetch FRED history' });
+    console.error('Sync Error:', error);
+    res.status(500).json({ error: 'Failed to sync data' });
   }
 });
 
 async function startServer() {
-  app.use(express.json());
-
-  // In production, you might still want Express to serve the built static site
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static('../frontend/dist'));
   }

@@ -4,16 +4,16 @@ import { ForwardReturnsTab } from './components/ForwardReturnsTab';
 import { CorrelationMatrixTab } from './components/CorrelationMatrixTab';
 import { BacktestTab } from './components/BacktestTab';
 import { AppendixTab } from './components/AppendixTab';
-import { cn } from '../../shared/utils';
-import { HistoryDataPoint } from '../../shared/types';
+import { cn } from '../../../shared/utils';
+import { HistoryDataPoint } from '../../../shared/types';
 
-interface BeatsFeatureProps {
+interface Flight2SafetyProps {
     fredData: any[];
     rawHistoryData: any[];
     loading: boolean;
 }
 
-export function BeatsFeature({ fredData, rawHistoryData, loading }: BeatsFeatureProps) {
+export function Flight2Safety({ fredData, rawHistoryData, loading }: Flight2SafetyProps) {
     const [activeTab, setActiveTab] = useState('dashboard');
     const [forwardPeriod, setForwardPeriod] = useState<number>(3);
 

@@ -50,13 +50,13 @@ export function Chatbot({ fredData, historyData, scorecardConfig, appendixData }
         const currentStatus = fredData.map(d => `${d.id}: ${d.value} (Date: ${d.date})`).join('\n');
         const factorsContext = scorecardConfig.map(c => `${c.name} (${c.id}): ${c.desc}`).join('\n');
         const appendixContext = appendixData.map(a => `${a.name} (${a.id}): ${a.desc}`).join('\n');
-        
+
         // Get the latest 5 history points to give some recent trend context
-        const recentHistory = historyData.slice(-5).map(h => 
+        const recentHistory = historyData.slice(-5).map(h =>
           `Date: ${h.date}, Return Diff: ${h.return_diff}%, Score: ${h.score || 'N/A'}, US10Y Fwd: ${h.us10y_fwd}%, SPX Fwd: ${h.spx_fwd}%`
         ).join('\n');
 
-        const systemInstruction = `You are an expert macro-economic AI assistant for the "BEATS" (Bond Equity Allocation Timing Scorecard) app. 
+        const systemInstruction = `You are an expert macro-economic AI assistant for the "Flight2Safety" (Bond Equity Allocation Timing Scorecard) app. 
 Your goal is to help users understand the factors driving the model, summarize current market conditions, and explain historical performance.
 
 Context about the model:
@@ -92,9 +92,9 @@ Guidelines:
       }
 
       const response = await chatRef.current.sendMessageStream({ message: userMessage });
-      
+
       setMessages(prev => [...prev, { role: 'model', text: '' }]);
-      
+
       for await (const chunk of response) {
         const text = chunk.text;
         if (text) {
