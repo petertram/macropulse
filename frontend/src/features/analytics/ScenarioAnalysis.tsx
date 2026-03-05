@@ -211,7 +211,7 @@ Provide a concise 3-4 paragraph analysis covering:
 
 Format in clean Markdown.`;
 
-      const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
+      const response = await ai.models.generateContent({ model: 'gemini-1.5-flash', contents: prompt });
       setAiCommentary(response.text || 'Unable to generate commentary.');
     } catch (err) {
       console.error('AI generation failed:', err);

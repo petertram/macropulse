@@ -431,7 +431,7 @@ export function Overview({ setActiveModel, fredData, rawHistoryData, loading, la
 
             // @ts-ignore
             const result = await genAI.models.generateContent({
-                model: 'gemini-2.5-flash',
+                model: 'gemini-1.5-flash',
                 contents: prompt
             });
             // @ts-ignore

@@ -176,7 +176,7 @@ export function CockpitOverview({ setActiveModel, fredData, loading }: CockpitOv
 
       // @ts-ignore
       const result = await genAI.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-1.5-flash',
         contents: prompt
       });
       // @ts-ignore

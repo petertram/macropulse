@@ -83,7 +83,7 @@ Guidelines:
 - Do not make definitive financial predictions or give investment advice; focus on explaining the model's inputs and historical relationships.`;
 
         chatRef.current = ai.chats.create({
-          model: 'gemini-3.1-pro-preview',
+          model: 'gemini-1.5-flash',
           config: {
             systemInstruction,
             temperature: 0.2,
