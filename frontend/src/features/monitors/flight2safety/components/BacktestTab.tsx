@@ -1,9 +1,122 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { ArrowRightLeft } from 'lucide-react';
-import { ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Legend, ReferenceLine, Area, Line } from 'recharts';
+import { ArrowRightLeft, ZoomIn, ZoomOut } from 'lucide-react';
+import { ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, ReferenceLine, Area, Line, ReferenceArea } from 'recharts';
 import { calculateScore, cn } from '../../../../shared/utils';
 import { scorecardConfig } from '../constants';
 import { HistoryDataPoint } from '../../../../shared/types';
+
+// ── Period Selector ──────────────────────────────────────────
+
+interface PeriodSelectorProps {
+    forwardPeriod: number;
+    setForwardPeriod: (v: number) => void;
+}
+
+export function PeriodSelector({ forwardPeriod, setForwardPeriod }: PeriodSelectorProps) {
+    const periods = [
+        { label: '1M', value: 1 },
+        { label: '3M', value: 3 },
+        { label: '6M', value: 6 },
+        { label: '9M', value: 9 },
+        { label: '1Y', value: 12 },
+    ];
+
+    return (
+        <div className="flex items-center gap-1 bg-[#1a1a1a] p-1 rounded-lg border border-white/10">
+            {periods.map(p => (
+                <button
+                    key={p.value}
+                    onClick={() => setForwardPeriod(p.value)}
+                    className={cn(
+                        "px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-200",
+                        forwardPeriod === p.value
+                            ? "bg-white/10 text-white shadow-sm border border-white/10"
+                            : "text-white/40 hover:text-white/70 hover:bg-white/5 border border-transparent"
+                    )}
+                >
+                    {p.label}
+                </button>
+            ))}
+        </div>
+    );
+}
+
+// ── Helpers ──────────────────────────────────────────────────
+
+function niceNum(range: number, round: boolean): number {
+    const exponent = Math.floor(Math.log10(range));
+    const fraction = range / Math.pow(10, exponent);
+    let niceFraction: number;
+
+    if (round) {
+        if (fraction < 1.5) niceFraction = 1;
+        else if (fraction < 2.25) niceFraction = 2;
+        else if (fraction < 3.5) niceFraction = 2.5;
+        else if (fraction < 7.5) niceFraction = 5;
+        else niceFraction = 10;
+    } else {
+        if (fraction <= 1) niceFraction = 1;
+        else if (fraction <= 2) niceFraction = 2;
+        else if (fraction <= 2.5) niceFraction = 2.5;
+        else if (fraction <= 5) niceFraction = 5;
+        else niceFraction = 10;
+    }
+
+    return niceFraction * Math.pow(10, exponent);
+}
+
+function getNiceTicks(min: number, max: number, tickCount = 5): { min: number, max: number, ticks: number[], precision: number } {
+    if (min === max) {
+        return { min: min - 1, max: max + 1, ticks: [min - 1, min, max + 1], precision: 0 };
+    }
+
+    const rangeNice = niceNum(max - min, false);
+    const tickSpacing = niceNum(rangeNice / (tickCount - 1), false);
+
+    const niceMin = Math.floor(min / tickSpacing) * tickSpacing;
+
+    // Force exactly N ticks
+    const ticks = Array.from({ length: tickCount }).map((_, i) => {
+        const val = niceMin + (i * tickSpacing);
+        return parseFloat(val.toPrecision(12));
+    });
+
+    const getPrecision = (n: number) => {
+        if (!isFinite(n)) return 0;
+        const s = n.toString();
+        const dot = s.indexOf('.');
+        if (dot === -1) return 0;
+        return s.length - dot - 1;
+    };
+    const precision = Math.max(...ticks.map(getPrecision));
+
+    return {
+        min: ticks[0],
+        max: ticks[ticks.length - 1],
+        ticks,
+        precision
+    };
+}
+
+function ChartLegend({ factorName }: { factorName: string }) {
+    return (
+        <div className="flex items-center gap-5">
+            <div className="flex items-center gap-1.5">
+                <div className="w-3 h-[2px] rounded-full bg-white/45" />
+                <span className="text-[10px] text-white/60 tracking-wide font-mono uppercase">{factorName}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-0.5">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    <div className="w-1 h-[2px] bg-white/10" />
+                    <div className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                </div>
+                <span className="text-[10px] text-white/50 tracking-wide font-mono uppercase">Bond-Equity Diff</span>
+            </div>
+        </div>
+    );
+}
+
 
 interface BacktestTabProps {
     historyData: HistoryDataPoint[];
@@ -13,6 +126,8 @@ interface BacktestTabProps {
 
 export function BacktestTab({ historyData, forwardPeriod, setForwardPeriod }: BacktestTabProps) {
     const [backtestData, setBacktestData] = useState<any[]>([]);
+    const [zoomState, setZoomState] = useState<'zoomed-in' | 'zoomed-out'>('zoomed-out');
+    const periodLabel = forwardPeriod === 12 ? '1Y' : `${forwardPeriod}M`;
 
     useEffect(() => {
         if (!historyData || historyData.length === 0) return;
@@ -54,7 +169,7 @@ export function BacktestTab({ historyData, forwardPeriod, setForwardPeriod }: Ba
 
                     <div className="space-y-3">
                         <div>
-                            <p className="text-indigo-400 font-bold uppercase tracking-wider mb-1">Flight-to-Safety Score</p>
+                            <p className="text-indigo-400 font-bold uppercase tracking-wider mb-1">Flight to Safety Score</p>
                             <p className="text-white text-lg font-bold">{data.score}<span className="text-[10px] text-white/40 ml-1 font-normal">/100</span></p>
                         </div>
 
@@ -91,17 +206,63 @@ export function BacktestTab({ historyData, forwardPeriod, setForwardPeriod }: Ba
         return null;
     };
 
-    const maxAbsDiff = useMemo(() => {
-        if (!backtestData || backtestData.length === 0) return 20;
+    // ── Calculate gradient split offset strictly based on the data's bounding box
+    const diffOffset = useMemo(() => {
+        const diffs = backtestData
+            .map(d => d.return_diff)
+            .filter(v => v !== null && v !== undefined && !isNaN(v));
+
+        if (diffs.length === 0) return 0.5;
+        const max = Math.max(...diffs);
+        const min = Math.min(...diffs);
+
+        if (max <= 0) return 0;
+        if (min >= 0) return 1;
+        return max / (max - min);
+    }, [backtestData]);
+
+    // ── Score exactly 5 evenly spaced, NICE ticks
+    const { scoreTicks, scoreDomainNice, scorePrecision } = useMemo(() => {
+        const domain = zoomState === 'zoomed-in' ? [30, 80] : [0, 100];
+        const nice = getNiceTicks(domain[0], domain[1], 5);
+        return {
+            scoreTicks: nice.ticks,
+            scoreDomainNice: [nice.min, nice.max],
+            scorePrecision: nice.precision
+        };
+    }, [zoomState]);
+
+    // ── Return diff exactly 5 evenly spaced, NICE ticks
+    const { returnDiffTicks, returnDiffDomainNice, returnDiffPrecision } = useMemo(() => {
+        if (!backtestData || backtestData.length === 0) {
+            return { returnDiffTicks: [-20, -10, 0, 10, 20], returnDiffDomainNice: [-20, 20], returnDiffPrecision: 0 };
+        }
+
         const validDiffs = backtestData
             .map(d => Math.abs(d.return_diff || 0))
             .filter(v => !isNaN(v) && isFinite(v));
 
-        if (validDiffs.length === 0) return 20;
+        const maxAbs = validDiffs.length > 0 ? Math.max(...validDiffs) : 20;
 
-        const max = Math.max(...validDiffs);
-        const padded = max * 1.1;
-        return Math.max(10, Math.ceil(padded / 10) * 10);
+        // Force the center tick to be zero for return diff
+        const nice = getNiceTicks(0, maxAbs, 3);
+        const step = nice.ticks[1] - nice.ticks[0];
+
+        // Build 5 ticks centered on zero
+        const ticks = [-2 * step, -step, 0, step, 2 * step];
+
+        const getPrecision = (n: number) => {
+            const s = n.toString();
+            const dot = s.indexOf('.');
+            return dot === -1 ? 0 : s.length - dot - 1;
+        };
+        const precision = Math.max(...ticks.map(getPrecision));
+
+        return {
+            returnDiffTicks: ticks,
+            returnDiffDomainNice: [ticks[0], ticks[4]],
+            returnDiffPrecision: precision
+        };
     }, [backtestData]);
 
     return (
@@ -111,77 +272,144 @@ export function BacktestTab({ historyData, forwardPeriod, setForwardPeriod }: Ba
                     <div>
                         <h2 className="text-lg font-semibold text-white flex items-center gap-2">
                             <ArrowRightLeft className="w-5 h-5 text-emerald-500" />
-                            Backtest Logic & Signals
+                            {periodLabel} Backtest Logic & Signals
                         </h2>
-                        <p className="text-sm text-white/50 mt-1">Tactical asset allocation shift from 60/40 to bond-heavy overweight</p>
+                        <p className="text-sm text-white/40 mt-1">Tactical asset allocation shift from 60/40 to bond-heavy overweight</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <PeriodSelector forwardPeriod={forwardPeriod} setForwardPeriod={setForwardPeriod} />
+                        <div className="flex bg-[#1a1a1a] border border-white/10 rounded-lg p-1 gap-1">
+                            <button
+                                onClick={() => setZoomState('zoomed-in')}
+                                className={cn(
+                                    "p-1.5 rounded-md transition-all",
+                                    zoomState === 'zoomed-in'
+                                        ? "bg-white/10 text-white"
+                                        : "text-white/30 hover:text-white/60 hover:bg-white/5"
+                                )}
+                                title="Zoom In — Focus on signal range"
+                            >
+                                <ZoomIn className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                                onClick={() => setZoomState('zoomed-out')}
+                                className={cn(
+                                    "p-1.5 rounded-md transition-all",
+                                    zoomState === 'zoomed-out'
+                                        ? "bg-white/10 text-white"
+                                        : "text-white/30 hover:text-white/60 hover:bg-white/5"
+                                )}
+                                title="Zoom Out — Full range"
+                            >
+                                <ZoomOut className="w-3.5 h-3.5" />
+                            </button>
+                        </div>
                     </div>
                 </div>
 
                 <div className="p-6">
                     <div className="h-[400px]">
-                        <h3 className="text-sm font-medium text-white/50 mb-6 uppercase tracking-widest">Historical Score vs. Asset Performance</h3>
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                            <h3 className="text-sm font-medium text-white/50 uppercase tracking-widest">Historical Score vs. Asset Performance</h3>
+                            <ChartLegend factorName="Flight to Safety Score" />
+                        </div>
                         <ResponsiveContainer width="100%" height="100%">
                             <ComposedChart data={backtestData} margin={{ top: 5, right: 20, bottom: 25, left: 0 }}>
                                 <defs>
                                     <linearGradient id="colorPos" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
-                                        <stop offset="95%" stopColor="#10b981" stopOpacity={0.1} />
+                                        <stop offset="0%" stopColor="#10b981" stopOpacity={0.90} />
+                                        <stop offset="100%" stopColor="#10b981" stopOpacity={0.20} />
                                     </linearGradient>
                                     <linearGradient id="colorNeg" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.1} />
-                                        <stop offset="95%" stopColor="#f43f5e" stopOpacity={0.4} />
+                                        <stop offset="0%" stopColor="#f43f5e" stopOpacity={0.20} />
+                                        <stop offset="100%" stopColor="#f43f5e" stopOpacity={0.90} />
+                                    </linearGradient>
+                                    <linearGradient id="strokeSplit" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="0%" stopColor="#10b981" />
+                                        <stop offset={`${diffOffset * 100}%`} stopColor="#10b981" />
+                                        <stop offset={`${diffOffset * 100}%`} stopColor="#f43f5e" />
+                                        <stop offset="100%" stopColor="#f43f5e" />
                                     </linearGradient>
                                 </defs>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#ffffff10" />
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.03)" />
                                 <XAxis
                                     dataKey="raw_date"
                                     axisLine={false}
                                     tickLine={false}
-                                    tick={{ fontSize: 12, fill: '#ffffff50', fontFamily: 'monospace' }}
-                                    dy={5}
+                                    tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.2)', fontFamily: 'ui-monospace, monospace' }}
+                                    dy={10}
                                     tickFormatter={(str) => new Date(str).getFullYear().toString()}
                                     minTickGap={60}
                                 />
-                                <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#ffffff50', fontFamily: 'monospace' }} dx={-10} domain={[0, 100]} />
-                                <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#ffffff50', fontFamily: 'monospace' }} dx={10} domain={[-maxAbsDiff, maxAbsDiff]} tickCount={5} />
-                                <Tooltip content={<CustomTooltip />} />
-                                <Legend
-                                    verticalAlign="top"
-                                    align="right"
-                                    wrapperStyle={{ fontSize: 10, fontFamily: 'monospace', paddingBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.05em' }}
-                                    iconType="circle"
-                                    iconSize={8}
+                                <YAxis
+                                    yAxisId="left"
+                                    axisLine={false}
+                                    tickLine={false}
+                                    tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.6)', fontFamily: 'ui-monospace, monospace' }}
+                                    dx={-5}
+                                    domain={scoreDomainNice}
+                                    ticks={scoreTicks}
+                                    tickFormatter={(v: number) => v.toFixed(scorePrecision)}
                                 />
-                                <ReferenceLine y={70} yAxisId="left" stroke="#f43f5e" strokeDasharray="3 3" label={{ position: 'insideTopLeft', value: 'Entry (70)', fill: '#f43f5e', fontSize: 10, fontFamily: 'monospace' }} />
-                                <ReferenceLine y={40} yAxisId="left" stroke="#10b981" strokeDasharray="3 3" label={{ position: 'insideBottomLeft', value: 'Exit (40)', fill: '#10b981', fontSize: 10, fontFamily: 'monospace' }} />
+                                <YAxis
+                                    yAxisId="right"
+                                    orientation="right"
+                                    axisLine={false}
+                                    tickLine={false}
+                                    tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.6)', fontFamily: 'ui-monospace, monospace' }}
+                                    dx={5}
+                                    domain={returnDiffDomainNice}
+                                    ticks={returnDiffTicks}
+                                    tickFormatter={(v: number) => `${v.toFixed(returnDiffPrecision)}%`}
+                                />
+                                <Tooltip content={<CustomTooltip />} />
+                                <ReferenceLine y={70} yAxisId="left" stroke="#10b981" strokeDasharray="3 3" label={{ position: 'insideTopLeft', value: 'Exit (70)', fill: '#10b981', fontSize: 10, fontFamily: 'monospace' }} />
+                                <ReferenceLine y={60} yAxisId="left" stroke="#f43f5e" strokeDasharray="3 3" label={{ position: 'insideBottomLeft', value: 'Entry (60)', fill: '#f43f5e', fontSize: 10, fontFamily: 'monospace' }} />
                                 <ReferenceLine y={0} yAxisId="right" stroke="#ffffff20" />
                                 <Area
                                     yAxisId="right"
                                     type="monotone"
                                     dataKey="return_diff_pos"
-                                    name="Return Diff (10Y - SPX)"
-                                    legendType="none"
-                                    stroke="#10b981"
+                                    stroke="none"
                                     fillOpacity={1}
                                     fill="url(#colorPos)"
-                                    dot={false}
                                     baseValue={0}
                                     connectNulls
+                                    isAnimationActive={false}
                                 />
                                 <Area
                                     yAxisId="right"
                                     type="monotone"
                                     dataKey="return_diff_neg"
-                                    name="Return Diff (10Y - SPX)"
-                                    legendType="none"
-                                    stroke="#f43f5e"
+                                    stroke="none"
                                     fillOpacity={1}
                                     fill="url(#colorNeg)"
-                                    dot={false}
                                     baseValue={0}
                                     connectNulls
+                                    isAnimationActive={false}
                                 />
-                                <Line yAxisId="left" type="monotone" dataKey="score" name="F2S Score" stroke="#818cf8" strokeWidth={1} strokeDasharray="4 4" dot={false} activeDot={{ r: 6, fill: '#ffffff' }} />
+                                <Line
+                                    yAxisId="right"
+                                    type="monotone"
+                                    dataKey="return_diff"
+                                    stroke="url(#strokeSplit)"
+                                    strokeWidth={1}
+                                    dot={false}
+                                    activeDot={false}
+                                    connectNulls
+                                    isAnimationActive={false}
+                                />
+                                <Line
+                                    yAxisId="left"
+                                    type="monotone"
+                                    dataKey="score"
+                                    name="Flight to Safety Score"
+                                    stroke="rgba(255,255,255,0.45)"
+                                    strokeWidth={1}
+                                    dot={false}
+                                    activeDot={{ r: 6, fill: '#ffffff' }}
+                                    isAnimationActive={false}
+                                />
                             </ComposedChart>
                         </ResponsiveContainer>
                     </div>

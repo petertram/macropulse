@@ -58,10 +58,10 @@ npm run dev
 
 This uses `concurrently` to spin up both processes in your single terminal window.
 
-* Frontend is accessible at: `http://localhost:5173` (or slightly higher ports if occupied)
-* API Server is running at: `http://localhost:3000`
+*   Frontend is accessible at: `http://localhost:5173` (or slightly higher ports if occupied)
+*   API Server is running at: `http://localhost:3001`
 
-> Note: The Vite frontend is already configured to proxy `/api` traffic directly to the node backend on port 3000.
+> Note: The Vite frontend is already configured to proxy `/api` traffic directly to the node backend on port 3001.
 
 ---
 

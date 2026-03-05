@@ -9,9 +9,10 @@ interface DashboardTabProps {
     fredData: any[];
     loading: boolean;
     historyData: HistoryDataPoint[];
+    lastSynced: string | null;
 }
 
-export function DashboardTab({ fredData, loading, historyData }: DashboardTabProps) {
+export function DashboardTab({ fredData, loading, historyData, lastSynced }: DashboardTabProps) {
     // Calculate live scorecard data
     const liveScorecard = scorecardConfig.map(config => {
         const vals = config.series.map(id => {
@@ -37,8 +38,8 @@ export function DashboardTab({ fredData, loading, historyData }: DashboardTabPro
     });
 
     const totalScore = liveScorecard.reduce((acc, curr) => acc + curr.currentScore, 0);
-    const riskLevel = totalScore >= 70 ? 'CRITICAL RISK' : totalScore >= 40 ? 'ELEVATED RISK' : 'NORMAL';
-    const riskColor = totalScore >= 70 ? 'text-rose-500' : totalScore >= 40 ? 'text-amber-500' : 'text-emerald-500';
+    const riskLevel = totalScore >= 70 ? 'CRITICAL RISK' : totalScore >= 60 ? 'ELEVATED RISK' : 'NORMAL';
+    const riskColor = totalScore >= 70 ? 'text-rose-500' : totalScore >= 60 ? 'text-amber-500' : 'text-emerald-500';
 
     return (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -48,9 +49,17 @@ export function DashboardTab({ fredData, loading, historyData }: DashboardTabPro
                     <div>
                         <h2 className="text-lg font-semibold text-white flex items-center gap-2">
                             <ShieldAlert className={cn("w-5 h-5", riskColor)} />
-                            "Flight-to-Safety" Scorecard
+                            Flight to Safety
                         </h2>
-                        <p className="text-sm text-white/50 mt-1">Live weighted scoring system (0-100) powered by FRED</p>
+                        <div className="flex items-center gap-3 mt-1">
+                            <p className="text-sm text-white/50">Live weighted scoring system (0-100) powered by FRED</p>
+                            {lastSynced && (
+                                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-[10px] text-white/40 font-mono">
+                                    <span className="w-1 h-1 rounded-full bg-emerald-500/50" />
+                                    DATA AS OF: {new Date(lastSynced).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).toUpperCase()}
+                                </div>
+                            )}
+                        </div>
                     </div>
                     <div className="text-right">
                         <div className="text-4xl font-light tracking-tight text-white font-mono">

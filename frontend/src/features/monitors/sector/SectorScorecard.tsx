@@ -1,15 +1,18 @@
-import React, { useState, useMemo } from 'react';
-import { 
-  TrendingUp, 
-  TrendingDown, 
-  Minus, 
-  Globe, 
-  Clock, 
-  Activity, 
-  ChevronDown, 
-  ChevronUp, 
+import React, { useState, useMemo, useEffect } from 'react';
+import {
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  Globe,
+  Clock,
+  Activity,
+  ChevronDown,
+  ChevronUp,
   Info,
-  BarChart3
+  BarChart3,
+  Loader2,
+  AlertCircle,
+  RefreshCw
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -18,7 +21,7 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-// --- Mock Data ---
+// --- Types ---
 type Score = -1 | 0 | 1;
 type FinalScore = -2 | -1 | 0 | 1 | 2;
 
@@ -37,86 +40,6 @@ interface SectorData {
   macro: PillarData;
   finalScore: FinalScore;
 }
-
-const mockDataUS: SectorData[] = [
-  {
-    id: 'xlk', sector: 'Technology', ticker: 'XLK',
-    momentum: { score: 1, value: '+42.5%', breakdown: 'Top 3 in region (12m return)' },
-    fundamental: { score: -1, value: '28.5x', breakdown: 'Forward P/E > 110% of 5yr mean' },
-    macro: { score: 1, value: 'Expanding', breakdown: 'Positive production trend (3m)' },
-    finalScore: 1
-  },
-  {
-    id: 'xlf', sector: 'Financials', ticker: 'XLF',
-    momentum: { score: 1, value: '+28.2%', breakdown: 'Top 3 in region (12m return)' },
-    fundamental: { score: 1, value: '14.2x', breakdown: 'Forward P/E < 90% of 5yr mean' },
-    macro: { score: 1, value: 'Expanding', breakdown: 'Positive employment trend (3m)' },
-    finalScore: 2 // Capped at +2
-  },
-  {
-    id: 'xlv', sector: 'Healthcare', ticker: 'XLV',
-    momentum: { score: 0, value: '+12.4%', breakdown: 'Middle tier in region (12m return)' },
-    fundamental: { score: 1, value: '17.8x', breakdown: 'Forward P/E < 90% of 5yr mean' },
-    macro: { score: 0, value: 'Stable', breakdown: 'Neutral employment trend (3m)' },
-    finalScore: 1
-  },
-  {
-    id: 'xly', sector: 'Consumer Discretionary', ticker: 'XLY',
-    momentum: { score: 1, value: '+35.1%', breakdown: 'Top 3 in region (12m return)' },
-    fundamental: { score: -1, value: '25.4x', breakdown: 'Forward P/E > 110% of 5yr mean' },
-    macro: { score: -1, value: 'Contracting', breakdown: 'Negative employment trend (3m)' },
-    finalScore: -1
-  },
-  {
-    id: 'xli', sector: 'Industrials', ticker: 'XLI',
-    momentum: { score: 0, value: '+18.5%', breakdown: 'Middle tier in region (12m return)' },
-    fundamental: { score: 0, value: '19.2x', breakdown: 'Forward P/E near 5yr mean' },
-    macro: { score: 1, value: 'Expanding', breakdown: 'Positive production trend (3m)' },
-    finalScore: 1
-  },
-  {
-    id: 'xlc', sector: 'Communication Services', ticker: 'XLC',
-    momentum: { score: 0, value: '+22.1%', breakdown: 'Middle tier in region (12m return)' },
-    fundamental: { score: -1, value: '21.5x', breakdown: 'Forward P/E > 110% of 5yr mean' },
-    macro: { score: 0, value: 'Stable', breakdown: 'Neutral production trend (3m)' },
-    finalScore: -1
-  },
-  {
-    id: 'xlp', sector: 'Consumer Staples', ticker: 'XLP',
-    momentum: { score: -1, value: '+4.2%', breakdown: 'Bottom 3 in region (12m return)' },
-    fundamental: { score: 1, value: '18.5x', breakdown: 'Forward P/E < 90% of 5yr mean' },
-    macro: { score: 0, value: 'Stable', breakdown: 'Neutral employment trend (3m)' },
-    finalScore: 0
-  },
-  {
-    id: 'xle', sector: 'Energy', ticker: 'XLE',
-    momentum: { score: -1, value: '-2.5%', breakdown: 'Bottom 3 in region (12m return)' },
-    fundamental: { score: 1, value: '11.2x', breakdown: 'Forward P/E < 90% of 5yr mean' },
-    macro: { score: -1, value: 'Contracting', breakdown: 'Negative production trend (3m)' },
-    finalScore: -1
-  },
-  {
-    id: 'xlu', sector: 'Utilities', ticker: 'XLU',
-    momentum: { score: -1, value: '-5.4%', breakdown: 'Bottom 3 in region (12m return)' },
-    fundamental: { score: 0, value: '16.8x', breakdown: 'Forward P/E near 5yr mean' },
-    macro: { score: -1, value: 'Contracting', breakdown: 'Negative production trend (3m)' },
-    finalScore: -2
-  },
-  {
-    id: 'xlre', sector: 'Real Estate', ticker: 'XLRE',
-    momentum: { score: -1, value: '-8.2%', breakdown: 'Bottom 3 in region (12m return)' },
-    fundamental: { score: -1, value: '35.2x', breakdown: 'Forward P/E > 110% of 5yr mean' },
-    macro: { score: -1, value: 'Contracting', breakdown: 'Negative employment trend (3m)' },
-    finalScore: -2 // Floored at -2
-  },
-  {
-    id: 'xlb', sector: 'Materials', ticker: 'XLB',
-    momentum: { score: 0, value: '+10.5%', breakdown: 'Middle tier in region (12m return)' },
-    fundamental: { score: 0, value: '15.4x', breakdown: 'Forward P/E near 5yr mean' },
-    macro: { score: 0, value: 'Stable', breakdown: 'Neutral production trend (3m)' },
-    finalScore: 0
-  }
-];
 
 const mockDataEU: SectorData[] = [
   {
@@ -207,13 +130,40 @@ type SortKey = 'sector' | 'momentum' | 'fundamental' | 'macro' | 'finalScore';
 
 export function SectorScorecard() {
   const [region, setRegion] = useState<'us' | 'eu'>('us');
-  const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'asc' | 'desc' }>({ 
-    key: 'finalScore', 
-    direction: 'desc' 
+  const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'asc' | 'desc' }>({
+    key: 'finalScore',
+    direction: 'desc'
   });
   const [expandedSector, setExpandedSector] = useState<string | null>(null);
 
-  const data = region === 'us' ? mockDataUS : mockDataEU;
+  // Live data fetching for US sectors
+  const [usData, setUsData] = useState<SectorData[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastFetched, setLastFetched] = useState<Date | null>(null);
+
+  const fetchUsData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/sectors/us');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      setUsData(json);
+      setLastFetched(new Date());
+    } catch (err: any) {
+      console.error('[SectorScorecard] Fetch error:', err);
+      setError(err.message || 'Failed to fetch sector data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchUsData();
+  }, []);
+
+  const data = region === 'us' ? usData : mockDataEU;
 
   const sortedData = useMemo(() => {
     let sortableItems = [...data];
@@ -271,7 +221,7 @@ export function SectorScorecard() {
     <div className="flex flex-col xl:flex-row gap-4 h-full">
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 gap-4 h-full">
-        
+
         {/* Header Controls */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-[#0f0f0f] p-3 rounded-xl border border-white/10 shrink-0">
           <div className="flex items-center gap-2 bg-[#1a1a1a] p-1 rounded-lg border border-white/5">
@@ -279,8 +229,8 @@ export function SectorScorecard() {
               onClick={() => setRegion('us')}
               className={cn(
                 "px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2",
-                region === 'us' 
-                  ? "bg-[#2a2a2a] text-white shadow-sm border border-white/10" 
+                region === 'us'
+                  ? "bg-[#2a2a2a] text-white shadow-sm border border-white/10"
                   : "text-white/50 hover:text-white/80 hover:bg-white/5 border border-transparent"
               )}
             >
@@ -291,8 +241,8 @@ export function SectorScorecard() {
               onClick={() => setRegion('eu')}
               className={cn(
                 "px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2",
-                region === 'eu' 
-                  ? "bg-[#2a2a2a] text-white shadow-sm border border-white/10" 
+                region === 'eu'
+                  ? "bg-[#2a2a2a] text-white shadow-sm border border-white/10"
                   : "text-white/50 hover:text-white/80 hover:bg-white/5 border border-transparent"
               )}
             >
@@ -300,10 +250,25 @@ export function SectorScorecard() {
               EuroStoxx 600
             </button>
           </div>
-          
-          <div className="flex items-center gap-2 text-xs text-white/40 font-mono bg-white/5 px-3 py-2 rounded-md border border-white/5">
-            <Clock className="w-3.5 h-3.5" />
-            Last Updated: {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+
+          <div className="flex items-center gap-2">
+            {region === 'us' && (
+              <button
+                onClick={fetchUsData}
+                disabled={loading}
+                className="flex items-center gap-1.5 text-xs text-white/40 hover:text-white/70 font-mono bg-white/5 hover:bg-white/10 px-3 py-2 rounded-md border border-white/5 transition-colors disabled:opacity-50"
+              >
+                <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
+                Refresh
+              </button>
+            )}
+            <div className="flex items-center gap-2 text-xs text-white/40 font-mono bg-white/5 px-3 py-2 rounded-md border border-white/5">
+              <Clock className="w-3.5 h-3.5" />
+              {region === 'us' && lastFetched
+                ? `Fetched: ${lastFetched.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
+                : `Last Updated: ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+              }
+            </div>
           </div>
         </div>
 
@@ -341,9 +306,39 @@ export function SectorScorecard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
-                {sortedData.map((row) => (
+                {loading && region === 'us' ? (
+                  <tr>
+                    <td colSpan={5} className="p-12 text-center">
+                      <div className="flex flex-col items-center gap-3">
+                        <Loader2 className="w-6 h-6 text-indigo-400 animate-spin" />
+                        <span className="text-sm text-white/50">Fetching live sector data from Yahoo Finance & FRED...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : error && region === 'us' ? (
+                  <tr>
+                    <td colSpan={5} className="p-12 text-center">
+                      <div className="flex flex-col items-center gap-3">
+                        <AlertCircle className="w-6 h-6 text-red-400" />
+                        <span className="text-sm text-red-400">{error}</span>
+                        <button
+                          onClick={fetchUsData}
+                          className="text-xs text-indigo-400 hover:text-indigo-300 underline"
+                        >
+                          Try again
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : sortedData.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="p-12 text-center">
+                      <span className="text-sm text-white/40">No sector data available</span>
+                    </td>
+                  </tr>
+                ) : sortedData.map((row) => (
                   <React.Fragment key={row.id}>
-                    <tr 
+                    <tr
                       className={cn(
                         "group cursor-pointer transition-colors hover:bg-white/[0.02]",
                         expandedSector === row.id ? "bg-white/[0.02]" : ""
@@ -397,7 +392,7 @@ export function SectorScorecard() {
                         </div>
                       </td>
                     </tr>
-                    
+
                     {/* Expanded Pillar Breakdown */}
                     {expandedSector === row.id && (
                       <tr className="bg-[#0a0a0a] border-b border-white/5">
@@ -419,7 +414,7 @@ export function SectorScorecard() {
                                 </div>
                                 <p className="text-[10px] text-white/60 leading-tight">{row.momentum.breakdown}</p>
                               </div>
-                              
+
                               {/* Fundamental Breakdown */}
                               <div className="bg-[#141414] border border-white/10 rounded-lg p-2.5">
                                 <div className="text-[10px] text-white/40 uppercase tracking-wider mb-1">Fundamental (P/E)</div>
@@ -431,7 +426,7 @@ export function SectorScorecard() {
                                 </div>
                                 <p className="text-[10px] text-white/60 leading-tight">{row.fundamental.breakdown}</p>
                               </div>
-                              
+
                               {/* Macro Breakdown */}
                               <div className="bg-[#141414] border border-white/10 rounded-lg p-2.5">
                                 <div className="text-[10px] text-white/40 uppercase tracking-wider mb-1">Macro Trend</div>
@@ -461,7 +456,7 @@ export function SectorScorecard() {
         {/* Market Pulse Widget */}
         <div className="bg-[#0f0f0f] rounded-xl border border-white/10 p-4 relative overflow-hidden shrink-0">
           <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/10 rounded-full blur-2xl -mr-8 -mt-8 pointer-events-none"></div>
-          
+
           <div className="flex items-center gap-3 mb-4">
             <div className="w-8 h-8 rounded-lg bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center">
               <Activity className="w-4 h-4 text-indigo-400" />
@@ -478,14 +473,14 @@ export function SectorScorecard() {
               <svg className="w-24 h-24 transform -rotate-90">
                 <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="6" fill="transparent" className="text-white/5" />
                 {/* Circular Progress Value (36/100 = 36% of circumference) */}
-                <circle 
-                  cx="48" cy="48" r="40" 
-                  stroke="currentColor" 
-                  strokeWidth="6" 
-                  fill="transparent" 
-                  strokeDasharray={2 * Math.PI * 40} 
-                  strokeDashoffset={2 * Math.PI * 40 * (1 - 0.36)} 
-                  className="text-slate-400 transition-all duration-1000 ease-out" 
+                <circle
+                  cx="48" cy="48" r="40"
+                  stroke="currentColor"
+                  strokeWidth="6"
+                  fill="transparent"
+                  strokeDasharray={2 * Math.PI * 40}
+                  strokeDashoffset={2 * Math.PI * 40 * (1 - 0.36)}
+                  className="text-slate-400 transition-all duration-1000 ease-out"
                   strokeLinecap="round"
                 />
               </svg>

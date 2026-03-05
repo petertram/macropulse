@@ -4,7 +4,7 @@
     "version": "1.0.0",
     "type": "module",
     "scripts": {
-        "dev": "tsx index.ts",
+        "dev": "tsx --watch index.ts",
         "start": "node index.ts"
     },
     "dependencies": {

@@ -1,5 +1,5 @@
 {
   "name": "MacroPulse",
-  "description": "Bond Equity Allocation Timing Scorecard - Predictive model for Bonds outperforming Equities based on historical economic cycles.",
+  "description": "Macro Pulse is a financial terminal application that provides users with real-time market data, news, and analytics.",
   "requestFramePermissions": []
 }

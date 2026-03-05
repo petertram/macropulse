@@ -34,8 +34,7 @@ import { Chatbot } from './features/ai-chat/Chatbot';
 import ScenarioAnalysis from './features/analytics/ScenarioAnalysis';
 import { SectorScorecard } from './features/monitors/sector/SectorScorecard';
 import { RegimeModel } from './features/models/regime/RegimeModel';
-import { CockpitOverview } from './features/analytics/CockpitOverview';
-import { AssetAllocationDashboard } from './features/analytics/AssetAllocationDashboard';
+import { Overview } from './features/analytics/Overview';
 import { CreditCycle } from './features/models/CreditCycle';
 import { LiquidityPulse } from './features/monitors/LiquidityPulse';
 import { InflationTracker } from './features/monitors/InflationTracker';
@@ -54,6 +53,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<{ lastSyncDate: string | null; lastSyncStatus: string | null; hasData: boolean; isCurrent: boolean; lastFredDataDate: string | null }>({ lastSyncDate: null, lastSyncStatus: null, hasData: false, isCurrent: false, lastFredDataDate: null });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const fetchFredData = () => {
@@ -75,11 +75,25 @@ export default function App() {
       });
   };
 
+  const fetchSyncStatus = () => {
+    fetch('/api/fred/sync-status')
+      .then(res => res.json())
+      .then(data => setSyncStatus(data))
+      .catch(err => console.error('Failed to fetch sync status:', err));
+  };
+
   const handleFredSync = async () => {
     setIsSyncing(true);
     try {
-      await fetch('/api/fred/sync', { method: 'POST' });
-      fetchFredData();
+      const res = await fetch('/api/fred/sync', { method: 'POST' });
+      const data = await res.json();
+      if (data.lastSyncDate) {
+        setSyncStatus(prev => ({ ...prev, lastSyncDate: data.lastSyncDate, lastSyncStatus: 'success', hasData: true, isCurrent: data.skipped || true }));
+      }
+      if (!data.skipped) {
+        fetchFredData();
+      }
+      fetchSyncStatus();
     } catch (error) {
       console.error('Failed to sync FRED data:', error);
     } finally {
@@ -125,7 +139,7 @@ export default function App() {
           pdf.addImage(imgData, 'JPEG', x, y, finalWidth, finalHeight);
         }
       }
-      pdf.save('Flight2Safety_Scorecard.pdf');
+      pdf.save('Flight_to_Safety_Scorecard.pdf');
     } catch (error) {
       console.error('Export failed:', error);
     } finally {
@@ -135,6 +149,7 @@ export default function App() {
 
   useEffect(() => {
     fetchFredData();
+    fetchSyncStatus();
   }, []);
 
   return (
@@ -170,8 +185,7 @@ export default function App() {
         <div className="flex-1 overflow-y-auto py-4 px-3 flex flex-col gap-1">
           <div className="text-xs font-medium uppercase tracking-wider text-white/30 px-3 mb-2 mt-4">Applied Analytics</div>
           {[
-            { id: 'overview', label: 'Cockpit Overview', icon: Activity },
-            { id: 'allocation', label: 'Asset Allocation', icon: LineChart },
+            { id: 'overview', label: 'Overview', icon: Activity },
             { id: 'scenario', label: 'Scenario Analysis', icon: Sparkles },
           ].map(item => (
             <button
@@ -186,8 +200,8 @@ export default function App() {
 
           <div className="text-xs font-medium uppercase tracking-wider text-white/30 px-3 mb-2 mt-6">Monitors & Scorecards</div>
           {[
-            { id: 'flight2safety', label: 'Flight2Safety Scorecard', icon: Activity },
-            { id: 'sector', label: 'Sector Scorecard', icon: BarChart3 },
+            { id: 'flight2safety', label: 'Flight to Safety', icon: Activity },
+            { id: 'sector', label: 'Sector Rotation', icon: BarChart3 },
             { id: 'inflation', label: 'Inflation Tracker', icon: TrendingUp },
             { id: 'surprise', label: 'Economic Surprise', icon: Target },
             { id: 'liquidity', label: 'Liquidity Pulse', icon: Zap },
@@ -243,9 +257,10 @@ export default function App() {
               </button>
               <div>
                 <h2 className="text-lg font-semibold tracking-tight text-white">
-                  {activeModel === 'overview' ? 'Cockpit Overview' :
-                    activeModel === 'flight2safety' ? 'Flight2Safety Scorecard' :
-                      activeModel.charAt(0).toUpperCase() + activeModel.slice(1).replace('-', ' ') + ' Dashboard'}
+                  {activeModel === 'overview' ? 'Overview' :
+                    activeModel === 'flight2safety' ? 'Flight to Safety' :
+                      activeModel === 'sector' ? 'Sector Rotation' :
+                        activeModel.charAt(0).toUpperCase() + activeModel.slice(1).replace('-', ' ') + ' Dashboard'}
                 </h2>
               </div>
             </div>
@@ -255,12 +270,19 @@ export default function App() {
                   onClick={handleFredSync}
                   disabled={isSyncing}
                   className={cn("text-xs font-medium uppercase tracking-wider flex items-center gap-2 px-3 py-1.5 rounded-md border transition-colors",
-                    isSyncing ? "text-emerald-500/50 border-emerald-500/10 bg-emerald-500/5" : "text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10"
+                    isSyncing ? "text-emerald-500/50 border-emerald-500/10 bg-emerald-500/5" :
+                      syncStatus.isCurrent ? "text-emerald-400/60 border-emerald-500/20 bg-emerald-500/5" :
+                        "text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10"
                   )}
                 >
                   <RefreshCw className={cn("w-3 h-3", isSyncing && "animate-spin")} />
-                  {isSyncing ? 'Syncing...' : 'Sync FRED Data'}
+                  {isSyncing ? 'Syncing...' : syncStatus.isCurrent ? 'Up to date' : 'Sync FRED Data'}
                 </button>
+                <span className="text-[10px] text-white/30 ml-1">
+                  {syncStatus.lastSyncDate
+                    ? `Last: ${(() => { const diff = Date.now() - new Date(syncStatus.lastSyncDate).getTime(); const mins = Math.floor(diff / 60000); if (mins < 1) return 'just now'; if (mins < 60) return `${mins}m ago`; const hrs = Math.floor(mins / 60); if (hrs < 24) return `${hrs}h ago`; return `${Math.floor(hrs / 24)}d ago`; })()}`
+                    : 'Never synced'}
+                </span>
               </div>
               <button
                 onClick={handleExport}
@@ -275,11 +297,10 @@ export default function App() {
         </header>
 
         <main className={cn("px-4 md:px-8 py-8 h-[calc(100vh-4rem)] overflow-y-auto")}>
-          {activeModel === 'overview' && <CockpitOverview setActiveModel={setActiveModel} fredData={fredData} loading={loading} />}
-          {activeModel === 'allocation' && <AssetAllocationDashboard />}
+          {activeModel === 'overview' && <Overview setActiveModel={setActiveModel} fredData={fredData} rawHistoryData={rawHistoryData} loading={loading} lastSynced={syncStatus.lastSyncDate} />}
           {activeModel === 'credit' && <CreditCycle />}
-          {activeModel === 'liquidity' && <LiquidityPulse />}
-          {activeModel === 'inflation' && <InflationTracker />}
+          {activeModel === 'liquidity' && <LiquidityPulse fredData={fredData} rawHistoryData={rawHistoryData} loading={loading} />}
+          {activeModel === 'inflation' && <InflationTracker fredData={fredData} rawHistoryData={rawHistoryData} loading={loading} />}
           {activeModel === 'surprise' && <EconomicSurprise />}
           {activeModel === 'recession' && <RecessionProbability />}
           {activeModel === 'yield' && <YieldCurve />}
@@ -287,7 +308,7 @@ export default function App() {
           {activeModel === 'cycles' && <EconomicCycles />}
           {activeModel === 'scenario' && <ScenarioAnalysis />}
           {activeModel === 'methodology' && <Methodology />}
-          {activeModel === 'flight2safety' && <Flight2Safety fredData={fredData} rawHistoryData={rawHistoryData} loading={loading} />}
+          {activeModel === 'flight2safety' && <Flight2Safety fredData={fredData} rawHistoryData={rawHistoryData} loading={loading} lastSynced={syncStatus.lastSyncDate} />}
           {activeModel === 'sector' && <SectorScorecard />}
           {activeModel === 'regime' && <RegimeModel />}
         </main>

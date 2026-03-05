@@ -159,7 +159,7 @@ export function CockpitOverview({ setActiveModel, fredData, loading }: CockpitOv
         - Yield Curve (10Y-2Y): ${yieldCurve}%
         - Financial Stress Index: ${finStress}
         - Macro Activity (CFNAI): ${macroActivity}
-        - Flight2Safety Risk Score: ${f2sScore}/100 (${riskLevel})
+        - Flight to Safety Risk Score: ${f2sScore}/100 (${riskLevel})
 
         Output Format (Markdown):
         **Regime**: [2-3 words, e.g. "Late Cycle Slowdown"]
@@ -360,7 +360,7 @@ export function CockpitOverview({ setActiveModel, fredData, loading }: CockpitOv
           onClick={() => setActiveModel('allocation')}
         />
         <CompactModelCard
-          title="Sector Momentum"
+          title="Sector Rotation"
           icon={Activity}
           status="Tech Lead"
           active={false}

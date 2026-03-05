@@ -19,11 +19,11 @@ export default function Methodology() {
         <section className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6">
           <div className="flex items-center gap-3 mb-4 border-b border-white/10 pb-4">
             <BarChart2 className="w-6 h-6 text-indigo-400" />
-            <h2 className="text-xl font-semibold text-white">Flight2Safety Scorecard</h2>
+            <h2 className="text-xl font-semibold text-white">Flight to Safety Scorecard</h2>
           </div>
           <div className="space-y-4 text-sm text-white/70">
             <p>
-              <strong className="text-white">Bond Equity Allocation Timing Scorecard (Flight2Safety)</strong> is a composite macro model designed to dynamically tilt portfolios between Equities and Fixed Income.
+              <strong className="text-white">Flight to Safety</strong> is a composite macro model designed to dynamically tilt portfolios between Equities and Fixed Income.
             </p>
             <h3 className="text-white font-medium mt-4 mb-2">Methodology:</h3>
             <ul className="list-disc pl-5 space-y-2">

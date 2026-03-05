@@ -6,11 +6,13 @@ export function RecessionAlert({ onNavigate }: { onNavigate?: (model: string) =>
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
-    // Simulate real-time alert trigger after 4 seconds
+    // Silenced: Simulate real-time alert trigger after 4 seconds
+    /*
     const timer = setTimeout(() => {
       setIsVisible(true);
     }, 4000);
     return () => clearTimeout(timer);
+    */
   }, []);
 
   return (
@@ -29,14 +31,14 @@ export function RecessionAlert({ onNavigate }: { onNavigate?: (model: string) =>
                 <AlertTriangle className="w-5 h-5" />
                 <span className="font-bold text-sm tracking-wide uppercase">Model Alert: Regime Shift</span>
               </div>
-              <button 
-                onClick={() => setIsVisible(false)} 
+              <button
+                onClick={() => setIsVisible(false)}
                 className="text-white/40 hover:text-white transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
-            
+
             <p className="text-white/80 text-sm mb-4 leading-relaxed">
               Recession Probability Model has spiked from <span className="text-white font-semibold">42.1%</span> to <span className="text-amber-400 font-bold">68.5%</span> over the last 72 hours, crossing the critical threshold.
             </p>
@@ -63,7 +65,7 @@ export function RecessionAlert({ onNavigate }: { onNavigate?: (model: string) =>
             </div>
 
             {onNavigate && (
-              <button 
+              <button
                 onClick={() => {
                   onNavigate('recession');
                   setIsVisible(false);
@@ -76,7 +78,7 @@ export function RecessionAlert({ onNavigate }: { onNavigate?: (model: string) =>
             )}
           </div>
           <div className="h-1 w-full bg-amber-500/20">
-            <motion.div 
+            <motion.div
               initial={{ width: "100%" }}
               animate={{ width: "0%" }}
               transition={{ duration: 15, ease: "linear" }}

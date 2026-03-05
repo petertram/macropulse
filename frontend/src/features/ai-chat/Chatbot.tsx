@@ -56,12 +56,12 @@ export function Chatbot({ fredData, historyData, scorecardConfig, appendixData }
           `Date: ${h.date}, Return Diff: ${h.return_diff}%, Score: ${h.score || 'N/A'}, US10Y Fwd: ${h.us10y_fwd}%, SPX Fwd: ${h.spx_fwd}%`
         ).join('\n');
 
-        const systemInstruction = `You are an expert macro-economic AI assistant for the "Flight2Safety" (Bond Equity Allocation Timing Scorecard) app. 
+        const systemInstruction = `You are an expert macro-economic AI assistant for the "Flight to Safety" macro app. 
 Your goal is to help users understand the factors driving the model, summarize current market conditions, and explain historical performance.
 
 Context about the model:
 The model predicts whether US 10-Year Treasury Bonds will outperform the S&P 500 over a forward period (e.g., 12 months).
-It uses a "Flight-to-Safety" (F2S) scorecard based on several macro factors.
+It uses a "Flight to Safety" scorecard based on several macro factors.
 
 Factors and Definitions:
 ${factorsContext}
