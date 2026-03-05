@@ -23,7 +23,7 @@ function cn(...inputs: ClassValue[]) {
 
 // --- Types ---
 type Score = -1 | 0 | 1;
-type FinalScore = -2 | -1 | 0 | 1 | 2;
+type FinalScore = -3 | -2 | -1 | 0 | 1 | 2 | 3;
 
 interface PillarData {
   score: Score;
@@ -38,6 +38,7 @@ interface SectorData {
   momentum: PillarData;
   fundamental: PillarData;
   macro: PillarData;
+  relativeStrength: PillarData;
   finalScore: FinalScore;
 }
 
@@ -47,13 +48,15 @@ const mockDataEU: SectorData[] = [
     momentum: { score: 1, value: '+32.1%', breakdown: 'Top 3 in region (12m return)' },
     fundamental: { score: 1, value: '7.5x', breakdown: 'Forward P/E < 90% of 5yr mean' },
     macro: { score: 1, value: 'Expanding', breakdown: 'Positive employment trend (3m)' },
-    finalScore: 2
+    relativeStrength: { score: 1, value: '+8.2%', breakdown: 'Sector return exceeds benchmark by >5%' },
+    finalScore: 3
   },
   {
     id: 'eu_tech', sector: 'Technology',
     momentum: { score: 1, value: '+28.4%', breakdown: 'Top 3 in region (12m return)' },
     fundamental: { score: -1, value: '24.2x', breakdown: 'Forward P/E > 110% of 5yr mean' },
     macro: { score: 1, value: 'Expanding', breakdown: 'Positive production trend (3m)' },
+    relativeStrength: { score: 0, value: '+2.1%', breakdown: 'Sector return within ±5% of benchmark' },
     finalScore: 1
   },
   {
@@ -61,6 +64,7 @@ const mockDataEU: SectorData[] = [
     momentum: { score: 0, value: '+15.2%', breakdown: 'Middle tier in region (12m return)' },
     fundamental: { score: 0, value: '16.5x', breakdown: 'Forward P/E near 5yr mean' },
     macro: { score: 0, value: 'Stable', breakdown: 'Neutral employment trend (3m)' },
+    relativeStrength: { score: 0, value: '-1.3%', breakdown: 'Sector return within ±5% of benchmark' },
     finalScore: 0
   },
   {
@@ -68,6 +72,7 @@ const mockDataEU: SectorData[] = [
     momentum: { score: 1, value: '+22.5%', breakdown: 'Top 3 in region (12m return)' },
     fundamental: { score: 0, value: '14.8x', breakdown: 'Forward P/E near 5yr mean' },
     macro: { score: 1, value: 'Expanding', breakdown: 'Positive production trend (3m)' },
+    relativeStrength: { score: 0, value: '+3.4%', breakdown: 'Sector return within ±5% of benchmark' },
     finalScore: 2
   },
   {
@@ -75,13 +80,15 @@ const mockDataEU: SectorData[] = [
     momentum: { score: -1, value: '+2.1%', breakdown: 'Bottom 3 in region (12m return)' },
     fundamental: { score: -1, value: '22.4x', breakdown: 'Forward P/E > 110% of 5yr mean' },
     macro: { score: -1, value: 'Contracting', breakdown: 'Negative employment trend (3m)' },
-    finalScore: -2 // Floored at -2
+    relativeStrength: { score: -1, value: '-7.6%', breakdown: 'Sector return lags benchmark by >5%' },
+    finalScore: -3
   },
   {
     id: 'eu_energy', sector: 'Energy',
     momentum: { score: -1, value: '-4.5%', breakdown: 'Bottom 3 in region (12m return)' },
     fundamental: { score: 1, value: '8.2x', breakdown: 'Forward P/E < 90% of 5yr mean' },
     macro: { score: -1, value: 'Contracting', breakdown: 'Negative production trend (3m)' },
+    relativeStrength: { score: 0, value: '-2.1%', breakdown: 'Sector return within ±5% of benchmark' },
     finalScore: -1
   }
 ];
@@ -90,22 +97,26 @@ const mockDataEU: SectorData[] = [
 
 const getBadgeStyle = (score: FinalScore) => {
   switch (score) {
+    case 3: return 'bg-teal-500/20 text-teal-300 border-teal-500/30';
     case 2: return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
     case 1: return 'bg-green-500/20 text-green-400 border-green-500/30';
     case 0: return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
     case -1: return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
     case -2: return 'bg-red-500/20 text-red-400 border-red-500/30';
+    case -3: return 'bg-rose-600/20 text-rose-300 border-rose-600/30';
     default: return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
   }
 };
 
 const getBadgeLabel = (score: FinalScore) => {
   switch (score) {
+    case 3: return '+3 Max OW';
     case 2: return '+2 Strong OW';
     case 1: return '+1 OW';
     case 0: return '0 Neutral';
     case -1: return '-1 UW';
     case -2: return '-2 Strong UW';
+    case -3: return '-3 Max UW';
     default: return '0 Neutral';
   }
 };
@@ -126,7 +137,7 @@ const getScoreColor = (score: Score) => {
   }
 };
 
-type SortKey = 'sector' | 'momentum' | 'fundamental' | 'macro' | 'finalScore';
+type SortKey = 'sector' | 'momentum' | 'fundamental' | 'macro' | 'relativeStrength' | 'finalScore';
 
 export function SectorScorecard() {
   const [region, setRegion] = useState<'us' | 'eu'>('us');
@@ -187,6 +198,10 @@ export function SectorScorecard() {
         case 'macro':
           aValue = a.macro.score;
           bValue = b.macro.score;
+          break;
+        case 'relativeStrength':
+          aValue = a.relativeStrength.score;
+          bValue = b.relativeStrength.score;
           break;
         case 'finalScore':
           aValue = a.finalScore;
@@ -298,6 +313,11 @@ export function SectorScorecard() {
                       Macro {sortConfig.key === 'macro' && (sortConfig.direction === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
                     </div>
                   </th>
+                  <th className="p-3 font-medium text-xs uppercase tracking-wider text-white/50 cursor-pointer hover:text-white transition-colors" onClick={() => requestSort('relativeStrength')}>
+                    <div className="flex items-center gap-1">
+                      Rel. Strength {sortConfig.key === 'relativeStrength' && (sortConfig.direction === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
+                    </div>
+                  </th>
                   <th className="p-3 font-medium text-xs uppercase tracking-wider text-white/50 cursor-pointer hover:text-white transition-colors" onClick={() => requestSort('finalScore')}>
                     <div className="flex items-center gap-1">
                       Final Score {sortConfig.key === 'finalScore' && (sortConfig.direction === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
@@ -308,7 +328,7 @@ export function SectorScorecard() {
               <tbody className="divide-y divide-white/5">
                 {loading && region === 'us' ? (
                   <tr>
-                    <td colSpan={5} className="p-12 text-center">
+                    <td colSpan={6} className="p-12 text-center">
                       <div className="flex flex-col items-center gap-3">
                         <Loader2 className="w-6 h-6 text-indigo-400 animate-spin" />
                         <span className="text-sm text-white/50">Fetching live sector data from Yahoo Finance & FRED...</span>
@@ -317,7 +337,7 @@ export function SectorScorecard() {
                   </tr>
                 ) : error && region === 'us' ? (
                   <tr>
-                    <td colSpan={5} className="p-12 text-center">
+                    <td colSpan={6} className="p-12 text-center">
                       <div className="flex flex-col items-center gap-3">
                         <AlertCircle className="w-6 h-6 text-red-400" />
                         <span className="text-sm text-red-400">{error}</span>
@@ -332,7 +352,7 @@ export function SectorScorecard() {
                   </tr>
                 ) : sortedData.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="p-12 text-center">
+                    <td colSpan={6} className="p-12 text-center">
                       <span className="text-sm text-white/40">No sector data available</span>
                     </td>
                   </tr>
@@ -384,6 +404,14 @@ export function SectorScorecard() {
                         </div>
                       </td>
                       <td className="p-3">
+                        <div className="flex items-center gap-2">
+                          {getTrendIcon(row.relativeStrength.score)}
+                          <span className={cn("font-mono text-xs", getScoreColor(row.relativeStrength.score))}>
+                            {row.relativeStrength.score > 0 ? '+' : ''}{row.relativeStrength.score}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="p-3">
                         <div className={cn(
                           "inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold border",
                           getBadgeStyle(row.finalScore)
@@ -396,13 +424,13 @@ export function SectorScorecard() {
                     {/* Expanded Pillar Breakdown */}
                     {expandedSector === row.id && (
                       <tr className="bg-[#0a0a0a] border-b border-white/5">
-                        <td colSpan={5} className="p-0">
+                        <td colSpan={6} className="p-0">
                           <div className="px-6 py-4 flex flex-col gap-3 border-l-2 border-indigo-500/50 ml-4 my-2 rounded-r-lg bg-gradient-to-r from-indigo-500/5 to-transparent">
                             <h4 className="text-xs font-medium text-white flex items-center gap-2">
                               <Info className="w-3 h-3 text-indigo-400" />
                               Pillar Breakdown Logic
                             </h4>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                               {/* Momentum Breakdown */}
                               <div className="bg-[#141414] border border-white/10 rounded-lg p-2.5">
                                 <div className="text-[10px] text-white/40 uppercase tracking-wider mb-1">Momentum</div>
@@ -437,6 +465,18 @@ export function SectorScorecard() {
                                   </span>
                                 </div>
                                 <p className="text-[10px] text-white/60 leading-tight">{row.macro.breakdown}</p>
+                              </div>
+
+                              {/* Relative Strength Breakdown */}
+                              <div className="bg-[#141414] border border-white/10 rounded-lg p-2.5">
+                                <div className="text-[10px] text-white/40 uppercase tracking-wider mb-1">Rel. Strength vs SPY</div>
+                                <div className="flex items-end gap-2 mb-1">
+                                  <span className="text-sm font-mono text-white">{row.relativeStrength.value}</span>
+                                  <span className={cn("text-[10px] font-medium mb-0.5", getScoreColor(row.relativeStrength.score))}>
+                                    Score: {row.relativeStrength.score > 0 ? '+' : ''}{row.relativeStrength.score}
+                                  </span>
+                                </div>
+                                <p className="text-[10px] text-white/60 leading-tight">{row.relativeStrength.breakdown}</p>
                               </div>
                             </div>
                           </div>
@@ -506,6 +546,10 @@ export function SectorScorecard() {
           </h3>
           <div className="flex flex-col gap-2.5 mb-4">
             <div className="flex items-center justify-between text-xs">
+              <span className="text-white/60">Max Overweight</span>
+              <span className={cn("px-2 py-0.5 rounded border", getBadgeStyle(3))}>+3</span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
               <span className="text-white/60">Strong Overweight</span>
               <span className={cn("px-2 py-0.5 rounded border", getBadgeStyle(2))}>+2</span>
             </div>
@@ -525,10 +569,14 @@ export function SectorScorecard() {
               <span className="text-white/60">Strong Underweight</span>
               <span className={cn("px-2 py-0.5 rounded border", getBadgeStyle(-2))}>-2</span>
             </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-white/60">Max Underweight</span>
+              <span className={cn("px-2 py-0.5 rounded border", getBadgeStyle(-3))}>-3</span>
+            </div>
           </div>
           <div className="mt-auto pt-3 border-t border-white/10">
             <p className="text-[10px] text-white/50 leading-relaxed">
-              <strong className="text-white/70">Note:</strong> Raw scores of +3 and +2 are capped at <strong className="text-emerald-400">+2 (Strong OW)</strong>, and scores of -3 and -2 are floored at <strong className="text-red-400">-2 (Strong UW)</strong>. This prevents extreme single-factor readings from disproportionately skewing the final allocation recommendation.
+              <strong className="text-white/70">4 pillars:</strong> Momentum + Fundamental (P/E) + Macro Trend + Relative Strength vs SPY. Each scores −1/0/+1. Final score is clamped to <strong className="text-teal-300">[−3, +3]</strong>.
             </p>
           </div>
         </div>

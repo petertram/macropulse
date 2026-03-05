@@ -22,7 +22,14 @@ import {
   Sparkles,
   LineChart,
   TrendingUp,
-  RefreshCw
+  RefreshCw,
+  Globe,
+  Landmark,
+  Layers,
+  Flame,
+  DollarSign,
+  Network,
+  Package
 } from 'lucide-react';
 
 import { cn } from './shared/utils';
@@ -43,6 +50,13 @@ import { RecessionProbability } from './features/models/RecessionProbability';
 import { YieldCurve } from './features/models/YieldCurve';
 import { MarketSentiment } from './features/monitors/MarketSentiment';
 import { EconomicCycles } from './features/models/EconomicCycles';
+import { FedPolicyTracker } from './features/models/FedPolicyTracker';
+import { FactorDashboard } from './features/models/FactorDashboard';
+import { BondScorecard } from './features/models/BondScorecard';
+import { InflationDecomposition } from './features/monitors/InflationDecomposition';
+import { CommodityMonitor } from './features/monitors/CommodityMonitor';
+import { DollarMonitor } from './features/monitors/DollarMonitor';
+import { CorrelationMonitor } from './features/monitors/CorrelationMonitor';
 import { RecessionAlert } from './features/core/RecessionAlert';
 import Methodology from './features/documentation/Methodology';
 
@@ -203,9 +217,13 @@ export default function App() {
             { id: 'flight2safety', label: 'Flight to Safety', icon: Activity },
             { id: 'sector', label: 'Sector Rotation', icon: BarChart3 },
             { id: 'inflation', label: 'Inflation Tracker', icon: TrendingUp },
+            { id: 'inflation-decomp', label: 'Inflation Decomp.', icon: Flame },
             { id: 'surprise', label: 'Economic Surprise', icon: Target },
             { id: 'liquidity', label: 'Liquidity Pulse', icon: Zap },
             { id: 'sentiment', label: 'Market Sentiment', icon: MessageSquare },
+            { id: 'commodities', label: 'Commodity Monitor', icon: Package },
+            { id: 'dollar', label: 'Dollar Monitor', icon: Globe },
+            { id: 'correlations', label: 'Cross-Asset Corr.', icon: Network },
           ].map(item => (
             <button
               key={item.id}
@@ -224,6 +242,9 @@ export default function App() {
             { id: 'yield', label: 'Yield Curve Model', icon: ArrowRightLeft },
             { id: 'credit', label: 'Credit Cycle', icon: BookOpen },
             { id: 'cycles', label: 'Economic Cycles', icon: LineChart },
+            { id: 'fed-policy', label: 'Fed Policy Tracker', icon: Landmark },
+            { id: 'factors', label: 'Factor Dashboard', icon: Layers },
+            { id: 'bond-scorecard', label: 'Bond Scorecard', icon: DollarSign },
           ].map(item => (
             <button
               key={item.id}
@@ -259,8 +280,15 @@ export default function App() {
                 <h2 className="text-lg font-semibold tracking-tight text-white">
                   {activeModel === 'overview' ? 'Overview' :
                     activeModel === 'flight2safety' ? 'Flight to Safety' :
-                      activeModel === 'sector' ? 'Sector Rotation' :
-                        activeModel.charAt(0).toUpperCase() + activeModel.slice(1).replace('-', ' ') + ' Dashboard'}
+                    activeModel === 'sector' ? 'Sector Rotation' :
+                    activeModel === 'inflation-decomp' ? 'Inflation Decomposition' :
+                    activeModel === 'bond-scorecard' ? 'Bond Scorecard' :
+                    activeModel === 'fed-policy' ? 'Fed Policy Tracker' :
+                    activeModel === 'correlations' ? 'Cross-Asset Correlations' :
+                    activeModel === 'commodities' ? 'Commodity Monitor' :
+                    activeModel === 'dollar' ? 'Dollar Monitor' :
+                    activeModel === 'factors' ? 'Factor Dashboard' :
+                    activeModel.charAt(0).toUpperCase() + activeModel.slice(1).replace(/-/g, ' ')}
                 </h2>
               </div>
             </div>
@@ -311,6 +339,13 @@ export default function App() {
           {activeModel === 'flight2safety' && <Flight2Safety fredData={fredData} rawHistoryData={rawHistoryData} loading={loading} lastSynced={syncStatus.lastSyncDate} />}
           {activeModel === 'sector' && <SectorScorecard />}
           {activeModel === 'regime' && <RegimeModel />}
+          {activeModel === 'fed-policy' && <FedPolicyTracker />}
+          {activeModel === 'factors' && <FactorDashboard />}
+          {activeModel === 'bond-scorecard' && <BondScorecard />}
+          {activeModel === 'inflation-decomp' && <InflationDecomposition />}
+          {activeModel === 'commodities' && <CommodityMonitor />}
+          {activeModel === 'dollar' && <DollarMonitor />}
+          {activeModel === 'correlations' && <CorrelationMonitor />}
         </main>
 
         <Chatbot

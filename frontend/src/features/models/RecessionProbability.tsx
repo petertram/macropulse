@@ -1,47 +1,90 @@
-import React from 'react';
-import { 
-  ShieldAlert, 
+import React, { useState, useEffect } from 'react';
+import {
+  ShieldAlert,
   TrendingUp,
+  TrendingDown,
   AlertTriangle,
   Info,
-  Activity
+  Activity,
+  RefreshCw
 } from 'lucide-react';
-import { 
-  AreaChart, 
-  Area, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
   ResponsiveContainer,
   LineChart,
   Line,
   ReferenceLine
 } from 'recharts';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
+interface RecessionData {
+  composite: number;
+  riskLevel: 'Low' | 'Moderate' | 'Elevated';
+  trend: 'Rising' | 'Falling' | 'Stable';
+  sahm: { current: number; triggered: boolean; threshold: number };
+  probit: { current: number; spread: number };
+  history: { date: string; probability: number; sahm: number }[];
+  analysis: string;
 }
 
-const mockHistory = Array.from({ length: 24 }).map((_, i) => ({
-  date: new Date(2022, i, 1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
-  probability: Math.max(5, Math.min(95, 10 + i * 3 + Math.random() * 15)),
-  sahm: Math.max(0, 0.1 + (i > 12 ? (i - 12) * 0.05 : 0) + Math.random() * 0.1),
-}));
+function formatDate(dateStr: string): string {
+  const d = new Date(dateStr);
+  return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+}
 
 export function RecessionProbability() {
-  const currentProb = 68.5;
-  const currentSahm = 0.52;
-  
+  const [data, setData] = useState<RecessionData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/models/recession-probability')
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false); })
+      .catch(err => { setError(err.message); setLoading(false); });
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64 gap-3 text-white/50">
+        <RefreshCw className="w-5 h-5 animate-spin" />
+        <span className="text-sm">Computing recession probability...</span>
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="flex items-center justify-center h-64 gap-3 text-rose-400">
+        <AlertTriangle className="w-5 h-5" />
+        <span className="text-sm">Failed to load recession model. Try syncing FRED data.</span>
+      </div>
+    );
+  }
+
+  const riskColor = data.riskLevel === 'Elevated' ? 'text-rose-400' : data.riskLevel === 'Moderate' ? 'text-amber-400' : 'text-emerald-400';
+  const riskBg = data.riskLevel === 'Elevated' ? 'bg-rose-500/10 border-rose-500/20 text-rose-400' : data.riskLevel === 'Moderate' ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400';
+  const riskDot = data.riskLevel === 'Elevated' ? 'bg-rose-500' : data.riskLevel === 'Moderate' ? 'bg-amber-500' : 'bg-emerald-500';
+
+  const chartData = data.history.map(h => ({
+    date: formatDate(h.date),
+    probability: h.probability,
+    sahm: h.sahm,
+  }));
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
-      {/* Methodology Section */}
+      {/* Methodology */}
       <div className="bg-[#141414] rounded-xl border border-white/10 p-5 mb-6">
-        <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2"><Info className="w-4 h-4 text-blue-400"/> Methodology</h3>
+        <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2">
+          <Info className="w-4 h-4 text-blue-400" /> Methodology
+        </h3>
         <p className="text-xs text-white/60 leading-relaxed">
-          The Recession Probability model synthesizes two primary leading indicators: The <strong>Sahm Rule</strong> and the <strong>Yield Curve Inversion (10Y-3M)</strong>. The Sahm Rule signals the start of a recession when the three-month moving average of the national unemployment rate rises by 0.50 percentage points or more relative to its low during the previous 12 months. The 12-month forward probability uses a probit model based on the spread between 10-Year Treasury Constant Maturity and 3-Month Treasury Bill.
+          The Recession Probability model synthesizes two leading indicators. The <strong>Sahm Rule</strong> (Claudia Sahm, 2019) signals recession start when the 3-month MA of unemployment rises ≥0.50pp above its 12-month low — it has a perfect real-time track record since 1970. The <strong>Yield Curve Probit</strong> (Estrella-Mishkin 1998, NY Fed) estimates 12-month forward recession probability from the 10Y-3M spread using standard normal CDF. Composite = 40% Sahm signal + 60% Probit probability.
         </p>
       </div>
 
@@ -50,9 +93,10 @@ export function RecessionProbability() {
         <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6">
           <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">Composite Recession Probability</div>
           <div className="flex items-baseline gap-2">
-            <div className="text-3xl font-light text-white font-mono">{currentProb.toFixed(1)}%</div>
-            <div className="text-xs font-medium text-rose-400 flex items-center">
-              <TrendingUp className="w-3 h-3 mr-1" /> Rising
+            <div className="text-3xl font-light text-white font-mono">{data.composite.toFixed(1)}%</div>
+            <div className={`text-xs font-medium flex items-center ${riskColor}`}>
+              {data.trend === 'Rising' ? <TrendingUp className="w-3 h-3 mr-1" /> : data.trend === 'Falling' ? <TrendingDown className="w-3 h-3 mr-1" /> : null}
+              {data.trend}
             </div>
           </div>
           <p className="text-[10px] text-white/30 mt-2">12-Month Forward Outlook</p>
@@ -61,23 +105,24 @@ export function RecessionProbability() {
         <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6">
           <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">Sahm Rule Indicator</div>
           <div className="flex items-baseline gap-2">
-            <div className="text-3xl font-light text-white font-mono">{currentSahm.toFixed(2)}</div>
-            <div className="text-xs font-medium text-rose-400 flex items-center">
-              <AlertTriangle className="w-3 h-3 mr-1" /> Triggered
+            <div className="text-3xl font-light text-white font-mono">{data.sahm.current.toFixed(2)}</div>
+            <div className={`text-xs font-medium flex items-center ${data.sahm.triggered ? 'text-rose-400' : 'text-emerald-400'}`}>
+              {data.sahm.triggered ? <AlertTriangle className="w-3 h-3 mr-1" /> : null}
+              {data.sahm.triggered ? 'Triggered' : 'Clear'}
             </div>
           </div>
-          <p className="text-[10px] text-white/30 mt-2">Threshold: 0.50</p>
+          <p className="text-[10px] text-white/30 mt-2">Threshold: 0.50 | 10Y-3M Spread: {data.probit.spread.toFixed(2)}%</p>
         </div>
 
         <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6">
           <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">Risk Level</div>
           <div className="flex items-center gap-3">
-            <div className="px-3 py-1 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm font-bold uppercase tracking-widest rounded-lg">
-              Elevated
+            <div className={`px-3 py-1 border text-sm font-bold uppercase tracking-widest rounded-lg ${riskBg}`}>
+              {data.riskLevel}
             </div>
-            <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></div>
+            <div className={`w-2 h-2 rounded-full ${riskDot} animate-pulse`}></div>
           </div>
-          <p className="text-[10px] text-white/30 mt-2">Defensive Posture Recommended</p>
+          <p className="text-[10px] text-white/30 mt-2">Probit: {data.probit.current.toFixed(1)}%</p>
         </div>
       </div>
 
@@ -90,40 +135,19 @@ export function RecessionProbability() {
           </h3>
           <div className="h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={mockHistory}>
+              <AreaChart data={chartData}>
                 <defs>
                   <linearGradient id="colorProb" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#f43f5e" stopOpacity={0}/>
+                    <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#f43f5e" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" vertical={false} />
-                <XAxis 
-                  dataKey="date" 
-                  stroke="#444" 
-                  fontSize={10} 
-                  tickLine={false} 
-                  axisLine={false}
-                />
-                <YAxis 
-                  stroke="#444" 
-                  fontSize={10} 
-                  tickLine={false} 
-                  axisLine={false}
-                  tickFormatter={(v) => `${v}%`}
-                />
-                <Tooltip 
-                  contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
-                />
+                <XAxis dataKey="date" stroke="#444" fontSize={10} tickLine={false} axisLine={false} />
+                <YAxis stroke="#444" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} domain={[0, 100]} />
+                <Tooltip contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }} />
                 <ReferenceLine y={50} stroke="#f59e0b" strokeDasharray="3 3" />
-                <Area 
-                  type="monotone" 
-                  dataKey="probability" 
-                  name="Probability"
-                  stroke="#f43f5e" 
-                  fillOpacity={1} 
-                  fill="url(#colorProb)" 
-                />
+                <Area type="monotone" dataKey="probability" name="Probability %" stroke="#f43f5e" fillOpacity={1} fill="url(#colorProb)" dot={false} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -136,33 +160,13 @@ export function RecessionProbability() {
           </h3>
           <div className="h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={mockHistory}>
+              <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" vertical={false} />
-                <XAxis 
-                  dataKey="date" 
-                  stroke="#444" 
-                  fontSize={10} 
-                  tickLine={false} 
-                  axisLine={false}
-                />
-                <YAxis 
-                  stroke="#444" 
-                  fontSize={10} 
-                  tickLine={false} 
-                  axisLine={false}
-                />
-                <Tooltip 
-                  contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
-                />
+                <XAxis dataKey="date" stroke="#444" fontSize={10} tickLine={false} axisLine={false} />
+                <YAxis stroke="#444" fontSize={10} tickLine={false} axisLine={false} domain={[0, 'dataMax + 0.1']} />
+                <Tooltip contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }} />
                 <ReferenceLine y={0.5} stroke="#f43f5e" strokeDasharray="3 3" label={{ position: 'top', value: 'Recession Threshold (0.5)', fill: '#f43f5e', fontSize: 10 }} />
-                <Line 
-                  type="monotone" 
-                  dataKey="sahm" 
-                  name="Sahm Indicator"
-                  stroke="#f59e0b" 
-                  strokeWidth={2} 
-                  dot={false}
-                />
+                <Line type="monotone" dataKey="sahm" name="Sahm Indicator" stroke="#f59e0b" strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -177,9 +181,7 @@ export function RecessionProbability() {
           </div>
           <div>
             <h3 className="text-lg font-semibold text-white mb-2">Recession Risk Analysis</h3>
-            <p className="text-sm text-white/60 leading-relaxed max-w-3xl">
-              The composite recession probability has reached <strong>Elevated</strong> levels. The Sahm Rule indicator, which tracks the 3-month moving average of the unemployment rate relative to its 12-month low, has crossed the critical 0.50 threshold. Combined with leading economic indicators (LEI) contraction and yield curve dynamics, the model suggests a high likelihood of a formal NBER recession declaration within the next 6-9 months. A defensive asset allocation posture is strongly recommended.
-            </p>
+            <p className="text-sm text-white/60 leading-relaxed max-w-3xl">{data.analysis}</p>
           </div>
         </div>
       </div>

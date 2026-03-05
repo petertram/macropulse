@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   LineChart as LineChartIcon,
   Info,
@@ -6,7 +6,8 @@ import {
   TrendingUp,
   ShieldCheck,
   AlertTriangle,
-  Activity
+  Activity,
+  RefreshCw
 } from 'lucide-react';
 import {
   LineChart,
@@ -22,78 +23,86 @@ import {
   Area
 } from 'recharts';
 
-const historicalData = [
-  { year: '1999', equities: 100, bonds: 100 },
-  { year: '2000', equities: 90, bonds: 110 },
-  { year: '2001', equities: 75, bonds: 118 },
-  { year: '2002', equities: 58, bonds: 130 },
-  { year: '2003', equities: 75, bonds: 135 },
-  { year: '2004', equities: 85, bonds: 140 },
-  { year: '2005', equities: 90, bonds: 145 },
-  { year: '2006', equities: 105, bonds: 150 },
-  { year: '2007', equities: 110, bonds: 160 },
-  { year: '2008', equities: 65, bonds: 180 },
-  { year: '2009', equities: 80, bonds: 175 },
-  { year: '2010', equities: 95, bonds: 185 },
-  { year: '2011', equities: 95, bonds: 200 },
-  { year: '2012', equities: 110, bonds: 205 },
-  { year: '2013', equities: 140, bonds: 195 },
-  { year: '2014', equities: 155, bonds: 210 },
-  { year: '2015', equities: 155, bonds: 215 },
-  { year: '2016', equities: 170, bonds: 220 },
-  { year: '2017', equities: 205, bonds: 225 },
-  { year: '2018', equities: 195, bonds: 225 },
-  { year: '2019', equities: 255, bonds: 240 },
-  { year: '2020', equities: 295, bonds: 265 },
-  { year: '2021', equities: 370, bonds: 255 },
-  { year: '2022', equities: 300, bonds: 220 },
-  { year: '2023', equities: 375, bonds: 230 },
-  { year: '2024', equities: 450, bonds: 235 },
-];
+interface EconomicCyclesData {
+  historicalData: { year: string; equities: number | null; bonds: number | null }[];
+  correlationData: { year: string; correlation: number | null }[];
+  recessionPeriods: { start: string; end: string; label: string }[];
+}
 
-const correlationData = [
-  { year: '1999', correlation: 0.2 },
-  { year: '2000', correlation: -0.1 },
-  { year: '2001', correlation: -0.3 },
-  { year: '2002', correlation: -0.4 },
-  { year: '2003', correlation: -0.2 },
-  { year: '2004', correlation: -0.1 },
-  { year: '2005', correlation: -0.2 },
-  { year: '2006', correlation: -0.3 },
-  { year: '2007', correlation: -0.4 },
-  { year: '2008', correlation: -0.6 },
-  { year: '2009', correlation: -0.5 },
-  { year: '2010', correlation: -0.4 },
-  { year: '2011', correlation: -0.5 },
-  { year: '2012', correlation: -0.3 },
-  { year: '2013', correlation: -0.2 },
-  { year: '2014', correlation: -0.3 },
-  { year: '2015', correlation: -0.4 },
-  { year: '2016', correlation: -0.3 },
-  { year: '2017', correlation: -0.2 },
-  { year: '2018', correlation: -0.1 },
-  { year: '2019', correlation: -0.3 },
-  { year: '2020', correlation: -0.5 },
-  { year: '2021', correlation: 0.1 },
-  { year: '2022', correlation: 0.6 },
-  { year: '2023', correlation: 0.4 },
-  { year: '2024', correlation: 0.2 },
-];
-
-const highlightPeriods = [
-  { start: '2000', end: '2002', label: 'Dot-Com Bust' },
-  { start: '2007', end: '2009', label: 'GFC' },
-  { start: '2020', end: '2020', label: 'COVID-19' },
-];
+function formatYearKey(key: string): string {
+  // key is YYYY-MM, return YYYY for display
+  return key.substring(0, 4);
+}
 
 export function EconomicCycles() {
+  const [data, setData] = useState<EconomicCyclesData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/models/economic-cycles')
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false); })
+      .catch(err => { setError(err.message); setLoading(false); });
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64 gap-3 text-white/50">
+        <RefreshCw className="w-5 h-5 animate-spin" />
+        <span className="text-sm">Loading economic cycles data...</span>
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="flex items-center justify-center h-64 gap-3 text-rose-400">
+        <AlertTriangle className="w-5 h-5" />
+        <span className="text-sm">Failed to load economic cycles. Try syncing FRED data.</span>
+      </div>
+    );
+  }
+
+  // Thin out to annual (last month of each year) for chart readability
+  const annualData: { year: string; equities: number | null; bonds: number | null }[] = [];
+  const seenYears = new Set<string>();
+  for (let i = data.historicalData.length - 1; i >= 0; i--) {
+    const yr = formatYearKey(data.historicalData[i].year);
+    if (!seenYears.has(yr)) {
+      seenYears.add(yr);
+      annualData.unshift({ year: yr, equities: data.historicalData[i].equities, bonds: data.historicalData[i].bonds });
+    }
+  }
+
+  // Annual correlation (last observation per year)
+  const annualCorr: { year: string; correlation: number | null }[] = [];
+  const seenCorrYears = new Set<string>();
+  for (let i = data.correlationData.length - 1; i >= 0; i--) {
+    const yr = formatYearKey(data.correlationData[i].year);
+    if (!seenCorrYears.has(yr)) {
+      seenCorrYears.add(yr);
+      annualCorr.unshift({ year: yr, correlation: data.correlationData[i].correlation });
+    }
+  }
+
+  // Map NBER dates to year strings for ReferenceArea
+  const recessionAreas = data.recessionPeriods.map(r => ({
+    start: r.start.substring(0, 4),
+    end: r.end.substring(0, 4),
+    label: r.label,
+  }));
+
+  // Latest correlation for analysis
+  const latestCorr = annualCorr.length > 0 ? annualCorr[annualCorr.length - 1].correlation : null;
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
-      {/* Methodology Section */}
+      {/* Methodology */}
       <div className="bg-[#141414] rounded-xl border border-white/10 p-5 mb-6">
         <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2"><Info className="w-4 h-4 text-blue-400" /> Methodology</h3>
         <p className="text-xs text-white/60 leading-relaxed">
-          The <strong>Economic Cycles</strong> model tracks the relative performance of Equities (S&P 500) versus Bonds (10-Year US Treasuries) across different macroeconomic regimes. Historically, during expansionary phases, equities outperform as corporate earnings grow. During contractions or recessions (highlighted areas), central banks cut interest rates, causing bond prices to rally and bonds to significantly outperform equities, acting as a portfolio ballast.
+          The <strong>Economic Cycles</strong> model tracks the relative performance of Equities (S&P 500) versus Bonds (10-Year US Treasury price proxy) across different macroeconomic regimes, both indexed to 100 at 1990. The bond price is approximated using DGS10 with an 8-year duration: Bond<sub>t</sub> = Bond<sub>t-1</sub> × (1 − ΔY × 0.08). Blue shaded areas are NBER-official recession periods. The rolling 3-year Pearson correlation between monthly equity and bond returns reveals the inflation-regime shift — negative correlations indicate the classic diversification benefit; positive correlations indicate an inflation-regime where bonds lose their hedge role.
         </p>
       </div>
 
@@ -102,67 +111,30 @@ export function EconomicCycles() {
         <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6">
           <h3 className="text-sm font-medium text-white mb-6 flex items-center gap-2">
             <LineChartIcon className="w-4 h-4 text-emerald-400" />
-            Historical Asset Performance (Normalized to 100 in 1999)
+            Historical Asset Performance (Indexed to 100 at 1990)
           </h3>
           <div className="h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={historicalData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <LineChart data={annualData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" vertical={false} />
-                <XAxis
-                  dataKey="year"
-                  stroke="#444"
-                  fontSize={10}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <YAxis
-                  stroke="#444"
-                  fontSize={10}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
-                  itemStyle={{ fontSize: '12px' }}
-                  labelStyle={{ color: '#888', marginBottom: '4px', fontSize: '12px' }}
-                />
+                <XAxis dataKey="year" stroke="#444" fontSize={10} tickLine={false} axisLine={false} />
+                <YAxis stroke="#444" fontSize={10} tickLine={false} axisLine={false} />
+                <Tooltip contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }} itemStyle={{ fontSize: '12px' }} labelStyle={{ color: '#888', marginBottom: '4px', fontSize: '12px' }} />
                 <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
 
-                {highlightPeriods.map((period, idx) => (
-                  <ReferenceArea
-                    key={idx}
-                    x1={period.start}
-                    x2={period.end}
-                    fill="#3b82f6"
-                    fillOpacity={0.15}
-                  />
+                {recessionAreas.map((period, idx) => (
+                  <ReferenceArea key={idx} x1={period.start} x2={period.end} fill="#3b82f6" fillOpacity={0.15} />
                 ))}
 
-                <Line
-                  type="monotone"
-                  dataKey="equities"
-                  name="Equities (S&P 500)"
-                  stroke="#10b981"
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={{ r: 6, fill: '#10b981', stroke: '#000', strokeWidth: 2 }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="bonds"
-                  name="Bonds (10Y US Treasury)"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={{ r: 6, fill: '#3b82f6', stroke: '#000', strokeWidth: 2 }}
-                />
+                <Line type="monotone" dataKey="equities" name="Equities (S&P 500)" stroke="#10b981" strokeWidth={2} dot={false} activeDot={{ r: 6, fill: '#10b981', stroke: '#000', strokeWidth: 2 }} connectNulls />
+                <Line type="monotone" dataKey="bonds" name="Bonds (10Y Duration Proxy)" stroke="#3b82f6" strokeWidth={2} dot={false} activeDot={{ r: 6, fill: '#3b82f6', stroke: '#000', strokeWidth: 2 }} connectNulls />
               </LineChart>
             </ResponsiveContainer>
           </div>
           <div className="mt-4 flex items-center justify-center gap-6 text-xs text-white/40">
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 bg-blue-500/20 border border-blue-500/50 rounded-sm"></div>
-              <span>Recession / Bond Outperformance Periods</span>
+              <span>NBER Recession Periods</span>
             </div>
           </div>
         </div>
@@ -175,7 +147,7 @@ export function EconomicCycles() {
           </h3>
           <div className="h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={correlationData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <AreaChart data={annualCorr} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorCorrelation" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3} />
@@ -183,54 +155,29 @@ export function EconomicCycles() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" vertical={false} />
-                <XAxis
-                  dataKey="year"
-                  stroke="#444"
-                  fontSize={10}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <YAxis
-                  stroke="#444"
-                  fontSize={10}
-                  tickLine={false}
-                  axisLine={false}
-                  domain={[-1, 1]}
-                  ticks={[-1, -0.5, 0, 0.5, 1]}
-                />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
-                  itemStyle={{ fontSize: '12px', color: '#f59e0b' }}
-                  labelStyle={{ color: '#888', marginBottom: '4px', fontSize: '12px' }}
-                  formatter={(value: number) => [value.toFixed(2), 'Correlation']}
-                />
+                <XAxis dataKey="year" stroke="#444" fontSize={10} tickLine={false} axisLine={false} />
+                <YAxis stroke="#444" fontSize={10} tickLine={false} axisLine={false} domain={[-1, 1]} ticks={[-1, -0.5, 0, 0.5, 1]} />
+                <Tooltip contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }} itemStyle={{ fontSize: '12px', color: '#f59e0b' }} labelStyle={{ color: '#888', marginBottom: '4px', fontSize: '12px' }} formatter={(value: number) => [value.toFixed(2), 'Correlation']} />
                 <ReferenceArea y1={0} y2={1} fill="#ef4444" fillOpacity={0.05} />
                 <ReferenceArea y1={-1} y2={0} fill="#10b981" fillOpacity={0.05} />
-                <Area
-                  type="monotone"
-                  dataKey="correlation"
-                  stroke="#f59e0b"
-                  fillOpacity={1}
-                  fill="url(#colorCorrelation)"
-                  strokeWidth={2}
-                />
+                <Area type="monotone" dataKey="correlation" stroke="#f59e0b" fillOpacity={1} fill="url(#colorCorrelation)" strokeWidth={2} connectNulls />
               </AreaChart>
             </ResponsiveContainer>
           </div>
           <div className="mt-4 flex items-center justify-between text-xs text-white/40 px-4">
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
-              <span>Negative (Diversification)</span>
+              <span>Negative (Diversification — bonds hedge equities)</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-red-500"></div>
-              <span>Positive (Correlated Risk)</span>
+              <span>Positive (Inflation Regime — no hedge)</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* AI Analysis Card */}
+      {/* Analysis Card */}
       <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-8 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none"></div>
         <div className="flex items-start gap-4 relative">
@@ -240,10 +187,14 @@ export function EconomicCycles() {
           <div className="space-y-4 w-full">
             <div>
               <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-                AI Correlation Analysis & Flight to Safety Implications
+                Stock-Bond Correlation Analysis
                 <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-indigo-500/20 text-indigo-300 border border-indigo-500/20">LIVE</span>
               </h3>
-              <p className="text-xs text-white/40 mt-1">Automated synthesis of stock-bond correlation shifts and their impact on the Flight to Safety model.</p>
+              <p className="text-xs text-white/40 mt-1">
+                Current 3Y rolling correlation: <strong className={latestCorr !== null ? (latestCorr > 0.2 ? 'text-rose-400' : latestCorr < -0.2 ? 'text-emerald-400' : 'text-amber-400') : 'text-white/40'}>
+                  {latestCorr !== null ? latestCorr.toFixed(2) : 'N/A'}
+                </strong>
+              </p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
@@ -252,25 +203,27 @@ export function EconomicCycles() {
                   <ShieldCheck className="w-4 h-4 text-blue-400" /> Historical Regime Shifts
                 </h4>
                 <p className="text-sm text-white/60 leading-relaxed">
-                  For the two decades preceding 2022, the stock-bond correlation was reliably negative (averaging -0.3). During demand-driven shocks (like the GFC or Dot-Com bust), bonds rallied as equities fell, providing the foundational logic for the 60/40 portfolio. However, during supply-driven inflation shocks (e.g., 2022), the correlation flips positive, causing simultaneous drawdowns.
+                  For the two decades preceding 2022, the stock-bond correlation was reliably negative (averaging -0.3). During demand-driven shocks (GFC, Dot-Com), bonds rallied as equities fell — the foundation of the 60/40 portfolio. During supply-driven inflation shocks (e.g., 2022), the correlation flips positive, causing simultaneous drawdowns across both asset classes.
                 </p>
               </div>
               <div className="space-y-2">
                 <h4 className="text-sm font-medium text-white/80 flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 text-amber-400" /> Implications for Flight to Safety Model
+                  <AlertTriangle className="w-4 h-4 text-amber-400" /> Flight to Safety Implications
                 </h4>
                 <p className="text-sm text-white/60 leading-relaxed">
-                  The Flight to Safety (Asset Allocation Timing Scorecard) model traditionally assumes bonds act as a safe haven when equity risk premiums compress. When correlation is positive (&gt;0), the Flight to Safety model's "Risk-Off" signal becomes less effective if it simply rotates into long-duration bonds. The model must dynamically adjust its fixed-income duration targets based on the prevailing inflation regime.
+                  When the stock-bond correlation is positive (&gt;0.2), traditional "Risk-Off" rotations into long-duration bonds fail to provide portfolio protection. The Flight to Safety model dynamically adjusts: in positive-correlation regimes, it shifts to short-duration Treasuries, gold, and cash rather than long bonds.
                 </p>
               </div>
             </div>
 
             <div className="mt-4 p-4 bg-indigo-500/5 border border-indigo-500/10 rounded-xl">
-              <h4 className="text-sm font-medium text-indigo-300 mb-2">Actionable Takeaway for Flight to Safety Allocation</h4>
+              <h4 className="text-sm font-medium text-indigo-300 mb-2">Current Regime Implication</h4>
               <p className="text-sm text-white/70 leading-relaxed">
-                As the rolling correlation begins to normalize back toward zero (currently 0.2 down from 0.6), the Flight to Safety model is re-weighting its traditional "Flight to Quality" signals.
-                <br /><br />
-                <strong>Flight to Safety Adjustment:</strong> While recession probabilities are rising, the Flight to Safety model is currently favoring <strong>cash equivalents and short-duration Treasuries (T-Bills)</strong> over long-duration bonds until the correlation firmly re-enters negative territory, ensuring true diversification during the next equity drawdown.
+                {latestCorr !== null && latestCorr > 0.2
+                  ? `Correlation is positive (${latestCorr.toFixed(2)}), indicating an ongoing inflationary or transitional regime. Bond duration provides limited equity hedge. Favor short-duration Treasuries, gold, or cash equivalents for Risk-Off allocations.`
+                  : latestCorr !== null && latestCorr < -0.2
+                  ? `Correlation is negative (${latestCorr.toFixed(2)}), indicating the classic diversification regime. Long-duration bonds provide effective portfolio ballast during equity drawdowns. The traditional 60/40 framework is operative.`
+                  : `Correlation is near neutral (${latestCorr !== null ? latestCorr.toFixed(2) : 'N/A'}), indicating a transitional period. Monitor for a sustained break into positive or negative territory as a signal of the prevailing macro regime.`}
               </p>
             </div>
           </div>

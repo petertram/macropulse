@@ -94,6 +94,52 @@ export function LiquidityPulse({ fredData = [], rawHistoryData = [], loading = f
     return processed.filter(d => d.date >= startDateStr);
   }, [rawHistoryData]);
 
+  const creditChartData = useMemo(() => {
+    if (!rawHistoryData || rawHistoryData.length === 0) return [];
+
+    const busloansMap = new Map<string, number>();
+    const totalslMap = new Map<string, number>();
+
+    rawHistoryData.forEach(d => {
+      const ym = d.date.substring(0, 7);
+      if (d.BUSLOANS) busloansMap.set(ym, d.BUSLOANS);
+      if (d.TOTALSL) totalslMap.set(ym, d.TOTALSL);
+    });
+
+    const fiveYearsAgo = new Date();
+    fiveYearsAgo.setFullYear(fiveYearsAgo.getFullYear() - 5);
+    const startDateStr = fiveYearsAgo.toISOString().split('T')[0];
+
+    const result: { date: string; displayDate: string; busloansYoY: number | null; totalslYoY: number | null }[] = [];
+    const seen = new Set<string>();
+
+    rawHistoryData.forEach(d => {
+      if (d.date < startDateStr) return;
+      const ym = d.date.substring(0, 7);
+      if (seen.has(ym)) return;
+      seen.add(ym);
+
+      const prevYear = String(parseInt(ym.substring(0, 4)) - 1) + ym.substring(4);
+
+      const bl = busloansMap.get(ym);
+      const blPrev = busloansMap.get(prevYear);
+      const busloansYoY = (bl && blPrev) ? parseFloat((((bl / blPrev) - 1) * 100).toFixed(2)) : null;
+
+      const tl = totalslMap.get(ym);
+      const tlPrev = totalslMap.get(prevYear);
+      const totalslYoY = (tl && tlPrev) ? parseFloat((((tl / tlPrev) - 1) * 100).toFixed(2)) : null;
+
+      result.push({
+        date: d.date,
+        displayDate: new Date(d.date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+        busloansYoY,
+        totalslYoY,
+      });
+    });
+
+    return result.sort((a, b) => a.date.localeCompare(b.date));
+  }, [rawHistoryData]);
+
   const latestStats = useMemo(() => {
     const getVal = (id: string) => fredData.find(d => d.id === id)?.value || 0;
     const walclT = getVal('WALCL') / 1000000;
@@ -105,12 +151,19 @@ export function LiquidityPulse({ fredData = [], rawHistoryData = [], loading = f
     // Get last year's M2 YoY from chartData
     const lastValidM2YoY = [...chartData].reverse().find(d => d.m2YoY !== null)?.m2YoY || 0;
 
+    const lastBusloansYoY = [...creditChartData].reverse().find(d => d.busloansYoY !== null)?.busloansYoY ?? null;
+    const lastTotalslYoY = [...creditChartData].reverse().find(d => d.totalslYoY !== null)?.totalslYoY ?? null;
+    const mortgage30 = getVal('MORTGAGE30US') || null;
+
     return {
       walclT,
       currentNetLiquidity,
-      m2YoY: lastValidM2YoY
+      m2YoY: lastValidM2YoY,
+      busloansYoY: lastBusloansYoY,
+      totalslYoY: lastTotalslYoY,
+      mortgage30,
     };
-  }, [fredData, chartData]);
+  }, [fredData, chartData, creditChartData]);
 
   // Determine pulse status by looking back roughly 3 months (90 days)
   const threeMonthsAgoDate = new Date();
@@ -178,6 +231,51 @@ export function LiquidityPulse({ fredData = [], rawHistoryData = [], loading = f
             <div className={cn("w-2 h-2 rounded-full animate-pulse", pulseDotColor)}></div>
           </div>
           <p className="text-[10px] text-white/30 mt-2">Macro liquidity environment for risk assets</p>
+        </div>
+      </div>
+
+      {/* Credit Impulse Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6">
+          <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">Bank Credit Impulse (BUSLOANS)</div>
+          <div className="flex items-baseline gap-2">
+            <div className={cn("text-3xl font-light font-mono", latestStats.busloansYoY === null ? "text-white/40" : latestStats.busloansYoY >= 0 ? "text-emerald-400" : "text-rose-400")}>
+              {latestStats.busloansYoY !== null ? `${latestStats.busloansYoY >= 0 ? '+' : ''}${latestStats.busloansYoY.toFixed(1)}%` : 'N/A'}
+            </div>
+            {latestStats.busloansYoY !== null && (
+              <div className={cn("text-xs font-medium flex items-center", latestStats.busloansYoY >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                {latestStats.busloansYoY >= 0 ? <TrendingUp className="w-3 h-3 mr-1" /> : <TrendingDown className="w-3 h-3 mr-1" />}
+                {latestStats.busloansYoY >= 0 ? 'Expanding' : 'Contracting'}
+              </div>
+            )}
+          </div>
+          <p className="text-[10px] text-white/30 mt-2">C&I + commercial loans YoY — leading credit demand indicator</p>
+        </div>
+
+        <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6">
+          <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">Consumer Credit Impulse (TOTALSL)</div>
+          <div className="flex items-baseline gap-2">
+            <div className={cn("text-3xl font-light font-mono", latestStats.totalslYoY === null ? "text-white/40" : latestStats.totalslYoY >= 0 ? "text-emerald-400" : "text-rose-400")}>
+              {latestStats.totalslYoY !== null ? `${latestStats.totalslYoY >= 0 ? '+' : ''}${latestStats.totalslYoY.toFixed(1)}%` : 'N/A'}
+            </div>
+            {latestStats.totalslYoY !== null && (
+              <div className={cn("text-xs font-medium flex items-center", latestStats.totalslYoY >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                {latestStats.totalslYoY >= 0 ? <TrendingUp className="w-3 h-3 mr-1" /> : <TrendingDown className="w-3 h-3 mr-1" />}
+                {latestStats.totalslYoY >= 0 ? 'Expanding' : 'Contracting'}
+              </div>
+            )}
+          </div>
+          <p className="text-[10px] text-white/30 mt-2">Total consumer credit outstanding YoY — household leverage signal</p>
+        </div>
+
+        <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6">
+          <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">30-Year Mortgage Rate</div>
+          <div className="flex items-baseline gap-2">
+            <div className={cn("text-3xl font-light font-mono", latestStats.mortgage30 === null ? "text-white/40" : latestStats.mortgage30 > 7 ? "text-rose-400" : latestStats.mortgage30 > 5 ? "text-amber-400" : "text-emerald-400")}>
+              {latestStats.mortgage30 ? `${latestStats.mortgage30.toFixed(2)}%` : 'N/A'}
+            </div>
+          </div>
+          <p className="text-[10px] text-white/30 mt-2">30-year fixed rate (MORTGAGE30US) — housing affordability & credit tightness</p>
         </div>
       </div>
 
@@ -298,6 +396,30 @@ export function LiquidityPulse({ fredData = [], rawHistoryData = [], loading = f
         </div>
       </div>
 
+      {/* Credit Impulse Chart */}
+      <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6">
+        <h3 className="text-sm font-medium text-white mb-6 flex items-center gap-2">
+          <Activity className="w-4 h-4 text-sky-400" />
+          Bank & Consumer Credit Growth (YoY %)
+        </h3>
+        <div className="h-[280px] w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={creditChartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" vertical={false} />
+              <XAxis dataKey="displayDate" stroke="#444" fontSize={10} tickLine={false} axisLine={false} minTickGap={30} />
+              <YAxis stroke="#444" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} />
+              <Tooltip
+                contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
+                formatter={(v: number) => [`${v?.toFixed(1)}%`]}
+              />
+              <Legend iconType="circle" wrapperStyle={{ fontSize: '11px', paddingTop: '16px' }} />
+              <Line type="monotone" dataKey="busloansYoY" name="Bank Credit (BUSLOANS)" stroke="#38bdf8" strokeWidth={2} dot={false} connectNulls />
+              <Line type="monotone" dataKey="totalslYoY" name="Consumer Credit (TOTALSL)" stroke="#a78bfa" strokeWidth={2} dot={false} connectNulls />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
       {/* Analysis Card */}
       <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-8">
         <div className="flex items-start gap-4">
@@ -312,40 +434,10 @@ export function LiquidityPulse({ fredData = [], rawHistoryData = [], loading = f
                 : pulseStatus === 'Expansionary' ? " Liquidity is increasing, acting as a tailwind for risk asset valuations. Improving M2 growth and easing reserve constraints offer supportive conditions for equities."
                   : " The macro liquidity environment remains mixed. Divergences between net reserve conditions and broader money supply growth suggest a transitional period where targeted risk exposure is warranted."}
               <br /><br />
-              <em>Net Liquidity</em> is calculated as Total Fed Assets (WALCL) minus the Treasury General Account (WDTGAL) minus Reverse Repos (RRPONTSYD). This isolates the true amount of central bank cash available to fuel financial markets.
+              <em>Net Liquidity</em> = Total Fed Assets (WALCL) − Treasury General Account (WDTGAL) − Reverse Repos (RRPONTSYD). The <em>Bank Credit Impulse</em> (BUSLOANS YoY%) and <em>Consumer Credit Impulse</em> (TOTALSL YoY%) track private-sector credit creation — the engine of money multiplier effects beyond central bank balance sheet operations.
             </p>
           </div>
         </div>
-      </div>
-
-      {/* Debug Card (Temporary) */}
-      <div className="bg-amber-500/5 rounded-2xl border border-amber-500/20 p-6">
-        <h3 className="text-xs font-bold text-amber-400 uppercase tracking-widest mb-4">Data Debug Panel</h3>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-[10px] items-start">
-          <div className="bg-black/50 p-3 rounded-lg border border-white/5">
-            <div className="text-white/40 mb-1">FredData Length</div>
-            <div className="text-white font-mono">{fredData?.length || 0} items</div>
-          </div>
-          <div className="bg-black/50 p-3 rounded-lg border border-white/5">
-            <div className="text-white/40 mb-1">History Length</div>
-            <div className="text-white font-mono">{rawHistoryData?.length || 0} items</div>
-          </div>
-          <div className="bg-black/50 p-3 rounded-lg border border-white/5 overflow-hidden">
-            <div className="text-white/40 mb-1">Latest Observations</div>
-            <div className="text-[9px] text-white/60 font-mono leading-tight">
-              {fredData.filter(d => ['WALCL', 'WDTGAL', 'M2SL'].includes(d.id)).map(d => (
-                <div key={d.id}>{d.id}: {d.value}</div>
-              ))}
-            </div>
-          </div>
-          <div className="bg-black/50 p-3 rounded-lg border border-white/5 overflow-hidden">
-            <div className="text-white/40 mb-1">Sample History Keys (Latest)</div>
-            <div className="text-[9px] text-white/60 font-mono leading-tight whitespace-pre">
-              {rawHistoryData.length > 0 && JSON.stringify(Object.keys(rawHistoryData[rawHistoryData.length - 1]), null, 1)}
-            </div>
-          </div>
-        </div>
-        <p className="text-[9px] text-amber-500/50 mt-4 italic">* If counts are 0, data is not reaching the component via props. If WALCL is missing keys, the sync didn't fetch it.</p>
       </div>
     </div>
   );

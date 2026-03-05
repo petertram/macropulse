@@ -143,10 +143,11 @@ export function CockpitOverview({ setActiveModel, fredData, loading }: CockpitOv
 
   // --- AI Analysis ---
   const generateInsight = async () => {
-    if (!process.env.GEMINI_API_KEY) return;
+    const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env?.GEMINI_API_KEY : '');
+    if (!apiKey) return;
     setIsAnalyzing(true);
     try {
-      const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const genAI = new GoogleGenAI({ apiKey });
 
       const prompt = `
         Act as a Chief Investment Officer. Analyze these market vitals and provide a concise, actionable "Cockpit Summary".

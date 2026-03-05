@@ -282,6 +282,8 @@ export function Overview({ setActiveModel, fredData, rawHistoryData, loading, la
     const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [zoomLevel, setZoomLevel] = useState(0.5);
+    const [recessionData, setRecessionData] = useState<{ composite: number; riskLevel: string; trend: string; sahm?: { triggered: boolean; current: number } } | null>(null);
+    const [fedData, setFedData] = useState<{ current: { gap: number | null; realRate: number | null; policyStance: string } } | null>(null);
 
     // ── Data Extraction ──
     const vix = getValue(fredData, 'VIXCLS');
@@ -403,7 +405,14 @@ export function Overview({ setActiveModel, fredData, rawHistoryData, loading, la
         COMPOSITE SCORES:
         - Flight to Safety Risk Score: ${f2sScore}/100 (${riskLevel})
         - Current Macro Regime: ${regime.label}
-        
+
+        PREDICTIVE MODELS:
+        - Recession Probability: ${recessionData?.composite ?? 'N/A'}% (${recessionData?.riskLevel ?? 'N/A'}, ${recessionData?.trend ?? 'N/A'})
+        - Sahm Rule: ${recessionData?.sahm?.triggered ? 'TRIGGERED' : `Clear (${recessionData?.sahm?.current?.toFixed(2) ?? 'N/A'})`}
+        - Fed Policy Stance: ${fedData?.current.policyStance ?? 'N/A'}
+        - Taylor Rule Gap: ${fedData?.current.gap != null ? `${fedData.current.gap > 0 ? '+' : ''}${fedData.current.gap.toFixed(2)}%` : 'N/A'}
+        - Real Policy Rate: ${fedData?.current.realRate?.toFixed(2) ?? 'N/A'}%
+
         TACTICAL ALLOCATION (Model Output):
         ${allocationSummary}
 
@@ -440,6 +449,13 @@ export function Overview({ setActiveModel, fredData, rawHistoryData, loading, la
             generateInsight();
         }
     }, [loading, vix]);
+
+    useEffect(() => {
+        if (!loading) {
+            fetch('/api/models/recession-probability').then(r => r.json()).then(d => setRecessionData(d)).catch(() => { });
+            fetch('/api/models/fed-policy').then(r => r.json()).then(d => setFedData(d)).catch(() => { });
+        }
+    }, [loading]);
 
     return (
         <div className="space-y-6 animate-in fade-in duration-500 pb-10">
@@ -481,6 +497,7 @@ export function Overview({ setActiveModel, fredData, rawHistoryData, loading, la
                     value={yield10y?.toFixed(2) ?? '--'}
                     unit="10Y %"
                     status={yield10y ? (yield10y > 4.5 ? 'warning' : 'neutral') : 'neutral'}
+                    subtext={fedData?.current.gap != null ? `Gap: ${fedData.current.gap > 0 ? '+' : ''}${fedData.current.gap.toFixed(1)}%` : undefined}
                 />
                 <VitalCard
                     label="Credit Risk"
@@ -505,6 +522,7 @@ export function Overview({ setActiveModel, fredData, rawHistoryData, loading, la
                     value={macroActivity?.toFixed(2) ?? '--'}
                     unit="CFNAI"
                     status={macroActivity !== null ? (macroActivity < -0.5 ? 'danger' : macroActivity < 0 ? 'warning' : 'safe') : 'neutral'}
+                    subtext={recessionData ? `Rec.Risk: ${recessionData.composite}%` : undefined}
                 />
             </div>
 
@@ -740,17 +758,17 @@ export function Overview({ setActiveModel, fredData, rawHistoryData, loading, la
                     />
 
                     <MacroSenseCard
-                        title="Liquidity Pulse"
-                        status="Monitor"
-                        statusColor="amber"
+                        title="Recession Risk"
+                        status={recessionData?.riskLevel ?? 'Loading'}
+                        statusColor={recessionData?.riskLevel === 'Elevated' ? 'rose' : recessionData?.riskLevel === 'Low' ? 'emerald' : 'amber'}
                         indicators={[
-                            { label: 'VIX Level', value: vix?.toFixed(1) ?? '--', trend: vix && vix > 20 ? 'up' : 'down' },
-                            { label: 'Real Yield (TIPS)', value: realYield?.toFixed(2) ?? '--', trend: realYield && realYield > 1.5 ? 'up' : 'flat' }
+                            { label: 'Composite Probability', value: recessionData ? `${recessionData.composite}%` : '--', trend: recessionData?.trend === 'Rising' ? 'up' : recessionData?.trend === 'Falling' ? 'down' : 'flat' },
+                            { label: 'Sahm Rule', value: recessionData?.sahm ? (recessionData.sahm.triggered ? 'TRIGGERED' : `${recessionData.sahm.current.toFixed(2)}`) : '--', trend: recessionData?.sahm?.triggered ? 'up' : 'flat' }
                         ]}
-                        eqSignal={vix && vix > 25 ? 'UW' : 'N'}
-                        fiSignal="N"
-                        coSignal="N"
-                        onClick={() => setActiveModel('liquidity')}
+                        eqSignal={recessionData?.riskLevel === 'Elevated' ? 'UW' : recessionData?.riskLevel === 'Low' ? 'OW' : 'N'}
+                        fiSignal={recessionData?.riskLevel === 'Elevated' ? 'OW' : 'N'}
+                        coSignal={recessionData?.riskLevel === 'Elevated' ? 'UW' : 'N'}
+                        onClick={() => setActiveModel('recession')}
                     />
 
                     <MacroSenseCard
@@ -768,27 +786,29 @@ export function Overview({ setActiveModel, fredData, rawHistoryData, loading, la
                     />
 
                     <MacroSenseCard
-                        title="Economic Surprise"
-                        status={macroActivity !== null ? (macroActivity > 0.2 ? 'Positive' : macroActivity > -0.2 ? 'Neutral' : 'Negative') : 'Loading'}
-                        statusColor={macroActivity !== null ? (macroActivity > 0.2 ? 'emerald' : macroActivity > -0.2 ? 'amber' : 'rose') : 'amber'}
+                        title="Fed Policy"
+                        status={fedData?.current.policyStance ?? 'Loading'}
+                        statusColor={fedData?.current.policyStance?.includes('Restrictive') ? 'rose' : fedData?.current.policyStance?.includes('Accommodative') ? 'emerald' : 'amber'}
                         indicators={[
-                            { label: 'CFNAI', value: macroActivity?.toFixed(2) ?? '--', trend: macroActivity && macroActivity > 0 ? 'up' : 'down' },
-                            { label: 'Yield Curve', value: yieldCurve ? `${yieldCurve.toFixed(2)}%` : '--', trend: yieldCurve !== null ? (yieldCurve > 0 ? 'up' : 'down') : 'flat' }
+                            { label: 'Taylor Rule Gap', value: fedData?.current.gap != null ? `${fedData.current.gap > 0 ? '+' : ''}${fedData.current.gap.toFixed(2)}%` : '--', trend: fedData?.current.gap != null ? (fedData.current.gap > 0.5 ? 'up' : fedData.current.gap < -0.5 ? 'down' : 'flat') : 'flat' },
+                            { label: 'Real Rate (TIPS)', value: fedData?.current.realRate != null ? `${fedData.current.realRate.toFixed(2)}%` : '--', trend: fedData?.current.realRate != null ? (fedData.current.realRate > 1.5 ? 'up' : 'flat') : 'flat' }
                         ]}
-                        eqSignal={macroActivity && macroActivity > 0 ? 'OW' : 'UW'}
-                        fiSignal={macroActivity && macroActivity < -0.3 ? 'OW' : 'UW'}
+                        eqSignal={fedData?.current.gap != null ? (fedData.current.gap > 1.0 ? 'UW' : fedData.current.gap < -1.0 ? 'OW' : 'N') : 'N'}
+                        fiSignal={fedData?.current.gap != null ? (fedData.current.gap > 1.0 ? 'OW' : 'N') : 'N'}
                         coSignal="N"
-                        onClick={() => setActiveModel('surprise')}
+                        onClick={() => setActiveModel('fed-policy')}
                     />
                 </div>
             </div>
 
             {/* ── Row 3: Quick Navigation ── */}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <NavigationCard title="Flight to Safety" icon={ShieldAlert} statusLabel={`Score: ${f2sScore}`} onClick={() => setActiveModel('flight2safety')} />
                 <NavigationCard title="Sector Rotation" icon={BarChart3} statusLabel="Scorecard" onClick={() => setActiveModel('sector')} />
                 <NavigationCard title="Regime Model" icon={Cpu} statusLabel={regime.label} onClick={() => setActiveModel('regime')} />
-                <NavigationCard title="Recession Prob." icon={Activity} statusLabel="Monitor" onClick={() => setActiveModel('recession')} />
+                <NavigationCard title="Recession Prob." icon={Activity} statusLabel={recessionData ? `${recessionData.composite}% · ${recessionData.riskLevel}` : 'Monitor'} onClick={() => setActiveModel('recession')} />
+                <NavigationCard title="Fed Policy" icon={Target} statusLabel={fedData?.current.policyStance ?? 'Taylor Rule'} onClick={() => setActiveModel('fed-policy')} />
+                <NavigationCard title="Bond Scorecard" icon={Gauge} statusLabel="Environment" onClick={() => setActiveModel('bond-scorecard')} />
                 <NavigationCard title="Market Sentiment" icon={MessageSquare} statusLabel="Pulse" onClick={() => setActiveModel('sentiment')} />
                 <NavigationCard title="Scenario Analysis" icon={Sparkles} statusLabel="Simulator" onClick={() => setActiveModel('scenario')} />
             </div>
