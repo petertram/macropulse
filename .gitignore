@@ -6,3 +6,9 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Python backend — unused; omit virtual env and cache DB from tracking
+backend/.venv/
+backend/quant_cache.db
+backend/app/__pycache__/
+backend/app/core/__pycache__/
