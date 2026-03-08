@@ -4,6 +4,7 @@ import { db } from '../db/client.js';
 import { logger } from '../logger.js';
 import { lastYearLastMonth, getPercentileRank, pearsonCorrelation } from '../utils.js';
 import { ESI_LOOKBACK_MONTHS, CORRELATION_WINDOWS, REGIME_THRESHOLDS, MIN_CORRELATION_OBSERVATIONS } from '../constants.js';
+import { trainHMM, viterbiDecode, forwardBackward, reorderByHealth } from '../services/hmm.js';
 
 export const modelsRouter = Router();
 const router = modelsRouter;
@@ -1329,3 +1330,190 @@ router.get('/correlations', (req, res) => {
   }
 });
 
+
+// ── Hidden Markov Model — Gaussian Mixture, Baum-Welch EM ────────────────────
+
+const HMM_SERIES = [
+  { id: 'VIXCLS',       name: 'VIX',              invert: true  },
+  { id: 'BAMLH0A0HYM2', name: 'HY Credit Spread',  invert: true  },
+  { id: 'T10Y2Y',       name: 'Yield Curve (2s10s)', invert: false },
+  { id: 'UNRATE',       name: 'Unemployment Rate', invert: true  },
+  { id: 'STLFSI4',      name: 'Financial Stress',  invert: true  },
+  { id: 'CFNAI',        name: 'Economic Activity', invert: false },
+] as const;
+
+const HMM_K = 3;
+const HMM_STATE_NAMES  = ['Expansion', 'Contraction', 'Stress'] as const;
+const HMM_STATE_COLORS = ['emerald',   'amber',       'rose'   ] as const;
+
+router.get('/hmm-regime', (req, res) => {
+  try {
+    // 1. Load monthly history (ordered ascending)
+    const rows = db.prepare(
+      'SELECT month_key, data FROM fred_history ORDER BY month_key ASC'
+    ).all() as { month_key: string; data: string }[];
+
+    if (rows.length < 36) {
+      return res.status(400).json({
+        error: 'Need at least 36 months of FRED data. Sync first.',
+      });
+    }
+
+    // 2. Build observation matrix with forward-filling for missing values
+    const D = HMM_SERIES.length;
+    const lastSeen: Record<string, number> = {};
+    const rawObs: { date: string; raw: (number | null)[] }[] = [];
+
+    for (const row of rows) {
+      const data = JSON.parse(row.data);
+      const date: string = data.date ?? `${row.month_key}-01`;
+
+      for (const s of HMM_SERIES) {
+        const v = data[s.id];
+        if (v !== null && v !== undefined) {
+          const n = Number(v);
+          if (isFinite(n)) lastSeen[s.id] = n;
+        }
+      }
+      rawObs.push({
+        date,
+        raw: HMM_SERIES.map(s => lastSeen[s.id] ?? null),
+      });
+    }
+
+    // Drop rows where fewer than 4 of 6 indicators are available
+    const valid = rawObs.filter(r => r.raw.filter(v => v !== null).length >= 4);
+    if (valid.length < 36) {
+      return res.status(400).json({
+        error: 'Insufficient indicator coverage for HMM estimation.',
+      });
+    }
+
+    // 3. Compute global mean/std per dimension for z-scoring & imputation
+    const dimMean = Array.from({ length: D }, (_, d) => {
+      const vals = valid.map(r => r.raw[d]).filter((v): v is number => v !== null);
+      return vals.reduce((a, b) => a + b, 0) / vals.length;
+    });
+    const dimStd = Array.from({ length: D }, (_, d) => {
+      const vals = valid.map(r => r.raw[d]).filter((v): v is number => v !== null);
+      const mean = dimMean[d];
+      const variance = vals.reduce((s, v) => s + (v - mean) ** 2, 0) / vals.length;
+      return Math.max(0.01, Math.sqrt(variance));
+    });
+
+    // 4. Z-score and orient features (positive = expansion-favourable)
+    const zMatrix: number[][] = valid.map(r =>
+      HMM_SERIES.map((s, d) => {
+        const v = r.raw[d] ?? dimMean[d]; // impute with mean
+        const z = (v - dimMean[d]) / dimStd[d];
+        return s.invert ? -z : z;
+      })
+    );
+
+    // 5. Train HMM (Baum-Welch) and re-order states (0=Expansion, 2=Stress)
+    const fitResult = trainHMM(zMatrix, HMM_K, 100, 1e-5);
+    const { params, originalOrder } = reorderByHealth(fitResult);
+
+    // 6. Decode with re-ordered params
+    const viterbiPath = viterbiDecode(zMatrix, params);
+    const posterior    = forwardBackward(zMatrix, params);
+
+    // 7. Build history response (monthly points)
+    const T = valid.length;
+    const history = valid.map((r, t) => ({
+      date:         r.date,
+      state:        viterbiPath[t],
+      stateName:    HMM_STATE_NAMES[viterbiPath[t]],
+      expansion:    Math.round(posterior[t][0] * 1000) / 1000,
+      contraction:  Math.round(posterior[t][1] * 1000) / 1000,
+      stress:       Math.round(posterior[t][2] * 1000) / 1000,
+    }));
+
+    // 8. Current state
+    const currentState   = viterbiPath[T - 1];
+    const currentProbs   = posterior[T - 1];
+    const persistence    = params.A[currentState][currentState];
+    const expectedDur    = Math.min(1 / (1 - persistence + 1e-8), 60);
+
+    // Count consecutive months in current state
+    let streak = 0;
+    for (let i = T - 1; i >= 0; i--) {
+      if (viterbiPath[i] === currentState) streak++;
+      else break;
+    }
+
+    // 9. Indicator breakdown — current z-scores vs per-state means
+    const latestRaw = valid[T - 1].raw;
+    const latestZ   = zMatrix[T - 1];
+    const indicators = HMM_SERIES.map((s, d) => ({
+      id:        s.id,
+      name:      s.name,
+      current:   latestRaw[d] ?? dimMean[d],
+      zScore:    Math.round(latestZ[d] * 100) / 100,
+      muExp:     Math.round(params.mu[0][d] * 100) / 100,
+      muCon:     Math.round(params.mu[1][d] * 100) / 100,
+      muStr:     Math.round(params.mu[2][d] * 100) / 100,
+    }));
+
+    // 10. Transition matrix rounded for readability
+    const transitionMatrix = params.A.map(row =>
+      row.map(v => Math.round(v * 1000) / 1000)
+    );
+
+    // 11. Analysis narrative
+    const stateName  = HMM_STATE_NAMES[currentState];
+    const probPct    = Math.round(currentProbs[currentState] * 100);
+    const persPct    = Math.round(persistence * 100);
+    let analysis = `The Gaussian-mixture HMM (K=3, Baum-Welch, ${fitResult.iterations} EM iterations) ` +
+      `currently assigns the macro environment to the **${stateName}** regime ` +
+      `with ${probPct}% posterior probability. ` +
+      `The model has held this classification for ${streak} consecutive month${streak !== 1 ? 's' : ''}, ` +
+      `consistent with an estimated regime duration of ${expectedDur.toFixed(1)} months ` +
+      `(implied by the ${persPct}% self-transition probability). `;
+
+    if (currentState === 0) {
+      analysis += `Expansion regimes are characterised by subdued financial stress, contained credit spreads, ` +
+        `a healthy yield curve, and above-trend economic activity. ` +
+        `Historical Expansion episodes last ${expectedDur.toFixed(0)} months on average. ` +
+        `Pro-cyclical positioning is supported by current conditions.`;
+    } else if (currentState === 1) {
+      analysis += `Contraction regimes are characterised by deteriorating economic momentum, ` +
+        `rising credit risk premia, and increasing financial-market stress. ` +
+        `Portfolio quality upgrades and reduced beta are advisable. ` +
+        `Monitor the ${HMM_STATE_NAMES[0]} transition probability (${Math.round(params.A[1][0] * 100)}%) ` +
+        `for early recovery signals.`;
+    } else {
+      analysis += `Stress regimes are characterised by extreme financial-market dislocations — ` +
+        `elevated VIX, wide credit spreads, and rapid deterioration in activity indicators. ` +
+        `Capital preservation is paramount. ` +
+        `The expected Stress duration is ${expectedDur.toFixed(0)} months, ` +
+        `with a ${Math.round(params.A[2][0] * 100)}% probability of direct recovery to Expansion.`;
+    }
+
+    res.json({
+      currentState,
+      stateName,
+      stateColor:           HMM_STATE_COLORS[currentState],
+      stateProbabilities:   currentProbs.map(p => Math.round(p * 1000) / 1000),
+      stateNames:           HMM_STATE_NAMES,
+      stateColors:          HMM_STATE_COLORS,
+      transitionMatrix,
+      history,
+      indicators,
+      persistenceProbability: Math.round(persistence * 1000) / 1000,
+      expectedDuration:       Math.round(expectedDur * 10) / 10,
+      streak,
+      modelInfo: {
+        observations: T,
+        states:       HMM_K,
+        features:     D,
+        iterations:   fitResult.iterations,
+        logLikelihood: Math.round(fitResult.logLikelihood * 10) / 10,
+      },
+      analysis,
+    });
+  } catch (error) {
+    logger.error('hmm-regime', 'Error:', error);
+    res.status(500).json({ error: 'Failed to compute HMM regime model' });
+  }
+});

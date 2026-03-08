@@ -53,6 +53,7 @@ import { EconomicCycles } from './features/models/EconomicCycles';
 import { FedPolicyTracker } from './features/models/FedPolicyTracker';
 import { FactorDashboard } from './features/models/FactorDashboard';
 import { BondScorecard } from './features/models/BondScorecard';
+import { HmmRegime } from './features/models/HmmRegime';
 import { InflationDecomposition } from './features/monitors/InflationDecomposition';
 import { CommodityMonitor } from './features/monitors/CommodityMonitor';
 import { DollarMonitor } from './features/monitors/DollarMonitor';
@@ -245,6 +246,7 @@ export default function App() {
             { id: 'fed-policy', label: 'Fed Policy Tracker', icon: Landmark },
             { id: 'factors', label: 'Factor Dashboard', icon: Layers },
             { id: 'bond-scorecard', label: 'Bond Scorecard', icon: DollarSign },
+            { id: 'hmm', label: 'HMM Regime Model', icon: Cpu },
           ].map(item => (
             <button
               key={item.id}
@@ -285,6 +287,7 @@ export default function App() {
                     activeModel === 'bond-scorecard' ? 'Bond Scorecard' :
                     activeModel === 'fed-policy' ? 'Fed Policy Tracker' :
                     activeModel === 'correlations' ? 'Cross-Asset Correlations' :
+                    activeModel === 'hmm' ? 'HMM Regime Model' :
                     activeModel === 'commodities' ? 'Commodity Monitor' :
                     activeModel === 'dollar' ? 'Dollar Monitor' :
                     activeModel === 'factors' ? 'Factor Dashboard' :
@@ -346,6 +349,7 @@ export default function App() {
           {activeModel === 'commodities' && <CommodityMonitor />}
           {activeModel === 'dollar' && <DollarMonitor />}
           {activeModel === 'correlations' && <CorrelationMonitor />}
+          {activeModel === 'hmm' && <HmmRegime />}
         </main>
 
         <Chatbot
