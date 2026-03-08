@@ -60,6 +60,7 @@ import { FactorDashboard } from './features/models/FactorDashboard';
 import { BondScorecard } from './features/models/BondScorecard';
 import { FCI } from './features/models/FCI';
 import { EquityRiskPremium } from './features/models/EquityRiskPremium';
+import { HmmRegime } from './features/models/HmmRegime';
 import { InflationDecomposition } from './features/monitors/InflationDecomposition';
 import { CommodityMonitor } from './features/monitors/CommodityMonitor';
 import { DollarMonitor } from './features/monitors/DollarMonitor';
@@ -257,6 +258,7 @@ export default function App() {
             { id: 'bond-scorecard', label: 'Bond Scorecard', icon: DollarSign },
             { id: 'fci', label: 'Financial Conditions', icon: Gauge },
             { id: 'erp', label: 'Equity Risk Premium', icon: PieChart },
+            { id: 'hmm', label: 'HMM Regime Model', icon: Cpu },
           ].map(item => (
             <button
               key={item.id}
@@ -336,7 +338,8 @@ export default function App() {
                                 activeModel === 'commodities' ? 'Commodity Monitor' :
                                   activeModel === 'dollar' ? 'Dollar Monitor' :
                                     activeModel === 'factors' ? 'Factor Dashboard' :
-                                      activeModel.charAt(0).toUpperCase() + activeModel.slice(1).replace(/-/g, ' ')}
+                                      activeModel === 'hmm' ? 'HMM Regime Model' :
+                                        activeModel.charAt(0).toUpperCase() + activeModel.slice(1).replace(/-/g, ' ')}
                 </h2>
               </div>
             </div>
@@ -396,6 +399,7 @@ export default function App() {
           {activeModel === 'commodities' && <CommodityMonitor />}
           {activeModel === 'dollar' && <DollarMonitor />}
           {activeModel === 'correlations' && <CorrelationMonitor />}
+          {activeModel === 'hmm' && <HmmRegime />}
         </main>
 
         <Chatbot

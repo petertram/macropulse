@@ -46,6 +46,11 @@ export function Chatbot({ fredData, historyData, scorecardConfig, appendixData }
         `Date: ${h.date}, Return Diff: ${h.return_diff}%, Score: ${h.score || 'N/A'}, US10Y Fwd: ${h.us10y_fwd}%, SPX Fwd: ${h.spx_fwd}%`
       ).join('\n');
 
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY ?? '';
+      if (!apiKey) {
+        throw new Error('GEMINI_API_KEY is not set');
+      }
+
       const systemInstruction = `You are an expert macro-economic AI assistant for the "Flight to Safety" macro app. 
 Your goal is to help users understand the factors driving the model, summarize current market conditions, and explain historical performance.
 
