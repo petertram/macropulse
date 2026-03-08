@@ -7,17 +7,10 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import fs from 'fs';
-import { GoogleGenAI } from '@google/genai';
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-// Load .env from current directory, root directory, or frontend directory
-dotenv.config(); // default (server/ or root if run from root)
-dotenv.config({ path: path.join(__dirname, '../.env') }); // Parent dir (root)
-dotenv.config({ path: path.join(__dirname, '../../frontend/.env') }); // Frontend folder inside monorepo
-dotenv.config({ path: path.join(__dirname, '../frontend/.env') }); // Alternative frontend path
 
 const db = new Database(path.join(__dirname, 'market_data.db'));
 const yahooFinance = new YahooFinance();
@@ -2492,82 +2485,13 @@ async function autoSeed() {
 }
 
 // Always serve static files in Hostinger if they exist
-// We check multiple possible paths to handle different directory structures
-const possiblePaths = [
-  path.join(__dirname, '../../frontend/dist'), // Original structure (dev)
-  path.join(__dirname, '../frontend/dist'),    // Restructured ZIP structure (prod)
-  path.join(process.cwd(), 'frontend/dist')    // Root/cwd based structure
-];
-
-let selectedStaticPath = possiblePaths[0];
-for (const p of possiblePaths) {
-  if (fs.existsSync(p)) {
-    selectedStaticPath = p;
-    break;
-  }
-}
-
-app.use(express.static(selectedStaticPath));
-
-// ── AI Analysis Backend Proxy ────────────────────────────────────────────────
-
-app.post('/api/ai/generate', async (req, res) => {
-  const { prompt, systemInstruction, history, userKey } = req.body;
-
-  // Use user-provided key if available, otherwise fallback to server environment variable
-  const apiKey = userKey || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
-
-  if (!apiKey) {
-    console.warn('[AI Proxy]: GEMINI_API_KEY is missing in process.env and no userKey provided');
-    return res.status(500).json({ error: 'AI API Key not found. Please provide your own key in settings or configure server environment.' });
-  }
-
-  try {
-    const genAI = new GoogleGenAI({ apiKey });
-
-    // Use a more generic approach to handle different SDK versions
-    const config: any = {
-      model: 'gemini-2.5-flash',
-    };
-
-    if (systemInstruction) {
-      config.systemInstruction = systemInstruction;
-    }
-
-    if (history) {
-      const result = await genAI.models.generateContent({
-        ...config,
-        contents: [
-          ...history.map((h: any) => ({
-            role: h.role === 'model' ? 'model' : 'user',
-            parts: [{ text: h.text }]
-          })),
-          { role: 'user', parts: [{ text: prompt || '' }] }
-        ]
-      });
-      return res.json({ text: result.text || (result as any).response?.text() || "Generated." });
-    } else {
-      const result = await genAI.models.generateContent({
-        ...config,
-        contents: prompt
-      });
-      return res.json({ text: result.text || (result as any).response?.text() || "Generated." });
-    }
-  } catch (error: any) {
-    console.error('[AI Proxy Error]:', error);
-    res.status(500).json({ error: error.message || 'Failed to generate AI response' });
-  }
-});
+const staticPath = path.join(__dirname, '../../frontend/dist');
+app.use(express.static(staticPath));
 
 // Fallback to index.html for SPA routing
 app.get('*', (req, res) => {
   if (!req.path.startsWith('/api')) {
-    const indexPath = path.join(selectedStaticPath, 'index.html');
-    if (fs.existsSync(indexPath)) {
-      res.sendFile(indexPath);
-    } else {
-      res.status(404).send('Frontend build not found. Checked: ' + selectedStaticPath);
-    }
+    res.sendFile(path.join(staticPath, 'index.html'));
   }
 });
 

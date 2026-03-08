@@ -1,0 +1,16 @@
+{ 
+  "name": "macropulse-server", 
+  "version": "1.0.0", 
+  "type": "module", 
+  "scripts": { 
+    "build": "echo Pre-built", 
+    "start": "node dist/index.js" 
+  }, 
+  "dependencies": { 
+    "@google/genai": "^1.29.0", 
+    "better-sqlite3": "^12.4.1", 
+    "dotenv": "^17.2.3", 
+    "express": "^4.21.2", 
+    "yahoo-finance2": "^3.13.1" 
+  } 
+} 

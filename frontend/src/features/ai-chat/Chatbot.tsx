@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { MessageSquare, X, Send, Bot, User, Loader2 } from 'lucide-react';
-import { GoogleGenAI } from '@google/genai';
+import { MessageSquare, X, Send, Bot, User, Loader2, Key } from 'lucide-react';
 import Markdown from 'react-markdown';
 
 interface ChatbotProps {
@@ -17,6 +16,8 @@ export function Chatbot({ fredData, historyData, scorecardConfig, appendixData }
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isQuotaError, setIsQuotaError] = useState(false);
+  const [tempApiKey, setTempApiKey] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -38,25 +39,14 @@ export function Chatbot({ fredData, historyData, scorecardConfig, appendixData }
     setIsLoading(true);
 
     try {
-      const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env?.GEMINI_API_KEY : '');
-      if (!apiKey) {
-        throw new Error('GEMINI_API_KEY is not set');
-      }
+      const currentStatus = fredData.map(d => `${d.id}: ${d.value} (Date: ${d.date})`).join('\n');
+      const factorsContext = scorecardConfig.map(c => `${c.name} (${c.id}): ${c.desc}`).join('\n');
+      const appendixContext = appendixData.map(a => `${a.name} (${a.id}): ${a.desc}`).join('\n');
+      const recentHistory = historyData.slice(-5).map(h =>
+        `Date: ${h.date}, Return Diff: ${h.return_diff}%, Score: ${h.score || 'N/A'}, US10Y Fwd: ${h.us10y_fwd}%, SPX Fwd: ${h.spx_fwd}%`
+      ).join('\n');
 
-      const ai = new GoogleGenAI({ apiKey });
-
-      if (!chatRef.current) {
-        // Prepare context
-        const currentStatus = fredData.map(d => `${d.id}: ${d.value} (Date: ${d.date})`).join('\n');
-        const factorsContext = scorecardConfig.map(c => `${c.name} (${c.id}): ${c.desc}`).join('\n');
-        const appendixContext = appendixData.map(a => `${a.name} (${a.id}): ${a.desc}`).join('\n');
-
-        // Get the latest 5 history points to give some recent trend context
-        const recentHistory = historyData.slice(-5).map(h =>
-          `Date: ${h.date}, Return Diff: ${h.return_diff}%, Score: ${h.score || 'N/A'}, US10Y Fwd: ${h.us10y_fwd}%, SPX Fwd: ${h.spx_fwd}%`
-        ).join('\n');
-
-        const systemInstruction = `You are an expert macro-economic AI assistant for the "Flight to Safety" macro app. 
+      const systemInstruction = `You are an expert macro-economic AI assistant for the "Flight to Safety" macro app. 
 Your goal is to help users understand the factors driving the model, summarize current market conditions, and explain historical performance.
 
 Context about the model:
@@ -82,35 +72,45 @@ Guidelines:
 - Format your responses using Markdown for readability (e.g., bolding key terms, using bullet points).
 - Do not make definitive financial predictions or give investment advice; focus on explaining the model's inputs and historical relationships.`;
 
-        chatRef.current = ai.chats.create({
-          model: 'gemini-1.5-flash',
-          config: {
-            systemInstruction,
-            temperature: 0.2,
-          }
-        });
-      }
+      const response = await fetch('/api/ai/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: userMessage,
+          systemInstruction,
+          history: messages.slice(1).map(m => ({
+            role: m.role,
+            text: m.text
+          })),
+          userKey: localStorage.getItem('user_gemini_api_key') || ''
+        })
+      });
 
-      const response = await chatRef.current.sendMessageStream({ message: userMessage });
+      const data = await response.json();
 
-      setMessages(prev => [...prev, { role: 'model', text: '' }]);
-
-      for await (const chunk of response) {
-        const text = chunk.text;
-        if (text) {
-          setMessages(prev => {
-            const newMessages = [...prev];
-            newMessages[newMessages.length - 1].text += text;
-            return newMessages;
-          });
+      if (data.error) {
+        const errorStr = JSON.stringify(data.error).toLowerCase();
+        if (errorStr.includes('429') || errorStr.includes('quota') || errorStr.includes('exhausted')) {
+          setIsQuotaError(true);
+          return;
         }
+        throw new Error(data.error);
       }
 
-    } catch (error) {
+      setMessages(prev => [...prev, { role: 'model', text: data.text || 'No response.' }]);
+    } catch (error: any) {
       console.error('Chat error:', error);
-      setMessages(prev => [...prev, { role: 'model', text: 'Sorry, I encountered an error while processing your request.' }]);
+      setMessages(prev => [...prev, { role: 'model', text: `Sorry, I encountered an error: ${error.message}` }]);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleRetryWithKey = () => {
+    if (tempApiKey.trim()) {
+      localStorage.setItem('user_gemini_api_key', tempApiKey.trim());
+      setIsQuotaError(false);
+      handleSend();
     }
   };
 
@@ -168,6 +168,44 @@ Guidelines:
               </div>
             </div>
           ))}
+
+          {isQuotaError && (
+            <div className="flex flex-col gap-3 p-4 bg-red-500/10 border border-red-500/20 rounded-xl mt-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <div className="flex items-center gap-2 text-rose-400">
+                <Bot className="w-5 h-5" />
+                <span className="text-xs font-bold uppercase tracking-wider">Shared Quota Exceeded</span>
+              </div>
+              <p className="text-[11px] text-red-100/60 leading-relaxed font-mono">
+                The bot is currently unavailable due to shared server limits. Provide your own key to continue this thread.
+              </p>
+              <div className="space-y-2 pt-1">
+                <input
+                  type="password"
+                  placeholder="Paste Google AI Key..."
+                  value={tempApiKey}
+                  onChange={(e) => setTempApiKey(e.target.value)}
+                  className="w-full bg-black/60 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-indigo-500/50 transition-all font-mono"
+                  autoFocus
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleRetryWithKey}
+                    className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2"
+                  >
+                    <Key className="w-3 h-3" />
+                    Retry Message
+                  </button>
+                  <button
+                    onClick={() => setIsQuotaError(false)}
+                    className="px-3 py-2 bg-white/5 hover:bg-white/10 text-white/40 hover:text-white/70 rounded-lg text-xs font-medium transition-all"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {isLoading && (
             <div className="flex gap-3">
               <div className="w-8 h-8 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center shrink-0">

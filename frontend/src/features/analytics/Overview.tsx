@@ -27,7 +27,9 @@ import {
     Signal,
     ChevronRight,
     ZoomIn,
-    ZoomOut
+    ZoomOut,
+    Bot,
+    Key
 } from 'lucide-react';
 import {
     ScatterChart,
@@ -50,7 +52,6 @@ import {
     Area
 } from 'recharts';
 import { cn, calculateScore } from '../../shared/utils';
-import { GoogleGenAI } from "@google/genai";
 import ReactMarkdown from 'react-markdown';
 
 // ── Configuration ──
@@ -281,6 +282,8 @@ interface OverviewProps {
 export function Overview({ setActiveModel, fredData, rawHistoryData, loading, lastSynced }: OverviewProps) {
     const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [isQuotaError, setIsQuotaError] = useState(false);
+    const [tempApiKey, setTempApiKey] = useState('');
     const [zoomLevel, setZoomLevel] = useState(0.5);
     const [recessionData, setRecessionData] = useState<{ composite: number; riskLevel: string; trend: string; sahm?: { triggered: boolean; current: number } } | null>(null);
     const [fedData, setFedData] = useState<{ current: { gap: number | null; realRate: number | null; policyStance: string } } | null>(null);
@@ -377,17 +380,9 @@ export function Overview({ setActiveModel, fredData, rawHistoryData, loading, la
 
     // ── AI Analysis ──
     const generateInsight = async () => {
-        const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env?.GEMINI_API_KEY : undefined);
-        if (!apiKey) {
-            setAiAnalysis("**Configure GEMINI_API_KEY** in your environment to enable AI analysis.");
-            return;
-        }
         setIsAnalyzing(true);
+        setIsQuotaError(false);
         try {
-            const genAI = new GoogleGenAI({ apiKey });
-
-            const allocationSummary = allocation.map(a => `${a.name}: ${a.tactical}% (${a.delta >= 0 ? '+' : ''}${a.delta}% vs benchmark)`).join('\n');
-
             const prompt = `
         Act as a Chief Investment Officer at a top macro hedge fund. You are reviewing the morning cockpit brief. Analyze these vitals and provide a concise, actionable summary.
         
@@ -414,7 +409,7 @@ export function Overview({ setActiveModel, fredData, rawHistoryData, loading, la
         - Real Policy Rate: ${fedData?.current.realRate?.toFixed(2) ?? 'N/A'}%
 
         TACTICAL ALLOCATION (Model Output):
-        ${allocationSummary}
+        ${allocation.map(a => `${a.name}: ${a.tactical}% (${a.delta >= 0 ? '+' : ''}${a.delta}% vs benchmark)`).join('\n')}
 
         Output strictly in this Markdown format:
         **Regime**: [2-3 words max, e.g. "Late Cycle Caution"]
@@ -429,16 +424,31 @@ export function Overview({ setActiveModel, fredData, rawHistoryData, loading, la
         - [Key risk to monitor]
       `;
 
-            // @ts-ignore
-            const result = await genAI.models.generateContent({
-                model: 'gemini-1.5-flash',
-                contents: prompt
+            const userKey = localStorage.getItem('user_gemini_api_key') || '';
+            const res = await fetch('/api/ai/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    prompt,
+                    userKey
+                })
             });
-            // @ts-ignore
-            setAiAnalysis(result.text || result.response?.text() || "Analysis generated.");
-        } catch (error) {
+            const data = await res.json();
+
+            if (data.error) {
+                const errorStr = JSON.stringify(data.error).toLowerCase();
+                if (errorStr.includes('429') || errorStr.includes('quota') || errorStr.includes('exhausted')) {
+                    setIsQuotaError(true);
+                    setAiAnalysis(null);
+                    return;
+                }
+                throw new Error(data.error);
+            }
+
+            setAiAnalysis(data.text || "Analysis generated.");
+        } catch (error: any) {
             console.error("AI Error:", error);
-            setAiAnalysis("**Error**: Failed to generate analysis. Check your API key and try again.");
+            setAiAnalysis(`**Error**: ${error.message || 'Failed to generate analysis'}. Check server logs.`);
         } finally {
             setIsAnalyzing(false);
         }
@@ -703,6 +713,43 @@ export function Overview({ setActiveModel, fredData, rawHistoryData, loading, la
                             ) : aiAnalysis ? (
                                 <div className="markdown-body text-white/75 space-y-3 prose-sm">
                                     <ReactMarkdown>{aiAnalysis}</ReactMarkdown>
+                                </div>
+                            ) : isQuotaError ? (
+                                <div className="flex flex-col items-center justify-center h-full gap-4 max-w-sm mx-auto text-center">
+                                    <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl">
+                                        <Bot className="w-8 h-8 text-red-400 mb-2 mx-auto" />
+                                        <p className="text-xs text-red-200/90 font-medium">Shared Quota Exceeded</p>
+                                        <p className="text-[10px] text-red-200/50 mt-1 leading-relaxed">The server's Google API limit has been reached. Please provide your own key to continue locally.</p>
+                                    </div>
+                                    <div className="w-full space-y-2">
+                                        <input
+                                            type="password"
+                                            placeholder="Paste Google AI Key..."
+                                            value={tempApiKey}
+                                            onChange={(e) => setTempApiKey(e.target.value)}
+                                            className="w-full bg-black/60 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-blue-500/50 transition-all text-center"
+                                        />
+                                        <button
+                                            onClick={() => {
+                                                if (tempApiKey.trim()) {
+                                                    localStorage.setItem('user_gemini_api_key', tempApiKey.trim());
+                                                    generateInsight();
+                                                }
+                                            }}
+                                            className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-2"
+                                        >
+                                            <Key className="w-3 h-3" />
+                                            Activate & Retry
+                                        </button>
+                                        <a
+                                            href="https://aistudio.google.com/app/apikey"
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="text-[10px] text-white/30 hover:text-white/60 transition-colors underline"
+                                        >
+                                            Get a free key here
+                                        </a>
+                                    </div>
                                 </div>
                             ) : (
                                 <div className="flex flex-col items-center justify-center h-full text-white/25 gap-2">

@@ -23,3 +23,4 @@ export default defineConfig(({ mode }) => {
     },
   };
 });
+// Force restart dev server to clear favicon cache

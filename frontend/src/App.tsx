@@ -29,7 +29,10 @@ import {
   Flame,
   DollarSign,
   Network,
-  Package
+  Package,
+  RefreshCcw,
+  Settings,
+  Key
 } from 'lucide-react';
 
 import { cn } from './shared/utils';
@@ -66,6 +69,12 @@ export default function App() {
   const [rawHistoryData, setRawHistoryData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
+  const [userApiKey, setUserApiKey] = useState(() => localStorage.getItem('user_gemini_api_key') || '');
+  const [showApiKeyInput, setShowApiKeyInput] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem('user_gemini_api_key', userApiKey);
+  }, [userApiKey]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<{ lastSyncDate: string | null; lastSyncStatus: string | null; hasData: boolean; isCurrent: boolean; lastFredDataDate: string | null }>({ lastSyncDate: null, lastSyncStatus: null, hasData: false, isCurrent: false, lastFredDataDate: null });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -183,11 +192,8 @@ export default function App() {
       )}>
         <div className="p-6 border-b border-white/10 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center overflow-hidden border border-[#073620]/50 shadow-[0_0_15px_rgba(7,54,32,0.4)]">
-              <img src="/favicon.svg" alt="Logo" className="w-full h-full object-cover" />
-            </div>
             <div>
-              <h1 className="text-base font-semibold tracking-tight text-white leading-tight">MacroPulse</h1>
+              <h1 className="text-base font-semibold tracking-tight text-white leading-tight">HAI - MacroPulse</h1>
               <p className="text-[10px] uppercase tracking-widest text-white/40 font-medium">Models & Scorecards</p>
             </div>
           </div>
@@ -266,6 +272,42 @@ export default function App() {
               Methodology
             </button>
           </div>
+
+          <div className="mt-auto pt-6 border-t border-white/5 space-y-2">
+            <button
+              onClick={() => setShowApiKeyInput(!showApiKeyInput)}
+              className={cn(
+                "w-full flex items-center gap-3 px-3 py-2 rounded-md font-medium text-[11px] transition-colors",
+                userApiKey ? "text-emerald-400 bg-emerald-500/5 border border-emerald-500/20" : "text-white/40 hover:text-white hover:bg-white/5"
+              )}
+            >
+              <Key className="w-3.5 h-3.5" />
+              {userApiKey ? 'Custom Key Active' : 'Personal AI Key'}
+            </button>
+
+            {showApiKeyInput && (
+              <div className="px-1 space-y-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                <input
+                  type="password"
+                  placeholder="Paste Google API Key..."
+                  value={userApiKey}
+                  onChange={(e) => setUserApiKey(e.target.value)}
+                  className="w-full bg-black/40 border border-white/10 rounded px-2 py-1.5 text-[11px] text-white placeholder:text-white/20 focus:outline-none focus:border-emerald-500/50 transition-all font-mono"
+                />
+                <p className="text-[9px] text-white/30 leading-tight">
+                  Saves to browser storage. Bypasses shared quota.
+                </p>
+                {userApiKey && (
+                  <button
+                    onClick={() => { setUserApiKey(''); setShowApiKeyInput(false); }}
+                    className="text-[9px] text-red-400/60 hover:text-red-400 transition-colors uppercase tracking-widest font-bold"
+                  >
+                    Clear Key
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </aside>
 
@@ -280,15 +322,15 @@ export default function App() {
                 <h2 className="text-lg font-semibold tracking-tight text-white">
                   {activeModel === 'overview' ? 'Overview' :
                     activeModel === 'flight2safety' ? 'Flight to Safety' :
-                    activeModel === 'sector' ? 'Sector Rotation' :
-                    activeModel === 'inflation-decomp' ? 'Inflation Decomposition' :
-                    activeModel === 'bond-scorecard' ? 'Bond Scorecard' :
-                    activeModel === 'fed-policy' ? 'Fed Policy Tracker' :
-                    activeModel === 'correlations' ? 'Cross-Asset Correlations' :
-                    activeModel === 'commodities' ? 'Commodity Monitor' :
-                    activeModel === 'dollar' ? 'Dollar Monitor' :
-                    activeModel === 'factors' ? 'Factor Dashboard' :
-                    activeModel.charAt(0).toUpperCase() + activeModel.slice(1).replace(/-/g, ' ')}
+                      activeModel === 'sector' ? 'Sector Rotation' :
+                        activeModel === 'inflation-decomp' ? 'Inflation Decomposition' :
+                          activeModel === 'bond-scorecard' ? 'Bond Scorecard' :
+                            activeModel === 'fed-policy' ? 'Fed Policy Tracker' :
+                              activeModel === 'correlations' ? 'Cross-Asset Correlations' :
+                                activeModel === 'commodities' ? 'Commodity Monitor' :
+                                  activeModel === 'dollar' ? 'Dollar Monitor' :
+                                    activeModel === 'factors' ? 'Factor Dashboard' :
+                                      activeModel.charAt(0).toUpperCase() + activeModel.slice(1).replace(/-/g, ' ')}
                 </h2>
               </div>
             </div>
