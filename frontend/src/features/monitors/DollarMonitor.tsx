@@ -4,6 +4,17 @@ import {
   ResponsiveContainer
 } from 'recharts';
 import { Globe, Info, RefreshCw, AlertTriangle, TrendingUp, TrendingDown } from 'lucide-react';
+import { HistoryRangeTabs, useHistoryRange } from '../../shared/components/HistoryRangeTabs';
+import {
+  CHART_AXIS_COLOR,
+  CHART_AXIS_TICK,
+  CHART_GRID_COLOR,
+  downsampleHistory,
+  filterHistoryByRange,
+  getHistoryCoverageLabel,
+  getHistoryTickFormatter,
+  hasMixedCadenceHistory,
+} from '../../shared/utils';
 
 interface DollarData {
   current: {
@@ -54,6 +65,7 @@ export function DollarMonitor() {
   const [data, setData] = useState<DollarData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [range, setRange] = useHistoryRange();
 
   useEffect(() => {
     fetch('/api/models/dollar')
@@ -78,12 +90,15 @@ export function DollarMonitor() {
 
   const { current, correlations, history } = data;
 
-  const chartData = history.filter((_, i) => i % 3 === 0).map(h => ({
-    date: new Date(h.date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+  const filteredHistory = filterHistoryByRange(history, range);
+  const historyCoverage = getHistoryCoverageLabel(history);
+  const chartData = downsampleHistory(filteredHistory, range === 'ALL' ? 240 : 180).map(h => ({
+    date: h.date,
     DXY: h.dxy,
   }));
+  const tickFormatter = getHistoryTickFormatter(range);
 
-  const rankColor = current.rank52w === null ? 'text-white/40'
+  const rankColor = current.rank52w === null ? 'text-white/60'
     : current.rank52w >= 75 ? 'text-emerald-400'
     : current.rank52w <= 25 ? 'text-rose-400'
     : 'text-amber-400';
@@ -103,7 +118,7 @@ export function DollarMonitor() {
       {/* Stat Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-5">
-          <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">DXY Level</div>
+          <div className="text-xs font-medium text-white/65 uppercase tracking-wider mb-2">DXY Level</div>
           <div className="text-3xl font-light font-mono text-white">
             {current.dxy !== null ? current.dxy.toFixed(2) : 'N/A'}
           </div>
@@ -113,7 +128,7 @@ export function DollarMonitor() {
         </div>
 
         <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-5">
-          <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">52-Week Percentile</div>
+          <div className="text-xs font-medium text-white/65 uppercase tracking-wider mb-2">52-Week Percentile</div>
           <div className={`text-3xl font-light font-mono ${rankColor}`}>
             {current.rank52w !== null ? `${current.rank52w}%` : 'N/A'}
           </div>
@@ -123,7 +138,7 @@ export function DollarMonitor() {
         </div>
 
         <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-5">
-          <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">USD/EUR</div>
+          <div className="text-xs font-medium text-white/65 uppercase tracking-wider mb-2">USD/EUR</div>
           <div className="text-3xl font-light font-mono text-sky-400">
             {current.usdEur !== null ? current.usdEur.toFixed(4) : 'N/A'}
           </div>
@@ -131,29 +146,41 @@ export function DollarMonitor() {
         </div>
 
         <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-5">
-          <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">Returns</div>
+          <div className="text-xs font-medium text-white/65 uppercase tracking-wider mb-2">Returns</div>
           <div className="space-y-1.5 mt-1">
             {[{ l: '3M', v: current.r3m }, { l: '6M', v: current.r6m }, { l: '12M', v: current.r12m }].map(({ l, v }) => (
               <div key={l} className="flex items-center justify-between">
-                <span className="text-[10px] text-white/30">{l}</span>
+                <span className="text-[10px] text-white/55">{l}</span>
                 {v !== null ? (
                   <div className={`flex items-center gap-1 text-xs font-mono ${v >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                     {v >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
                     {v >= 0 ? '+' : ''}{v.toFixed(1)}%
                   </div>
-                ) : <span className="text-white/30 text-xs">N/A</span>}
+                ) : <span className="text-white/55 text-xs">N/A</span>}
               </div>
             ))}
           </div>
         </div>
       </div>
 
+      <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-4">
+        <HistoryRangeTabs
+          value={range}
+          onChange={setRange}
+          coverageLabel={historyCoverage}
+          showMixedCadenceNote={hasMixedCadenceHistory(history)}
+        />
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* DXY Chart */}
         <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6">
-          <h3 className="text-sm font-medium text-white mb-6 flex items-center gap-2">
-            <Globe className="w-4 h-4 text-sky-400" /> DXY Index — 1 Year
-          </h3>
+          <div className="flex items-center justify-between gap-3 mb-6">
+            <h3 className="text-sm font-medium text-white flex items-center gap-2">
+              <Globe className="w-4 h-4 text-sky-400" /> DXY Index
+            </h3>
+            <span className="text-[10px] text-white/60 uppercase tracking-wider">{historyCoverage}</span>
+          </div>
           <div className="h-[260px]">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData}>
@@ -163,9 +190,9 @@ export function DollarMonitor() {
                     <stop offset="95%" stopColor="#38bdf8" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" vertical={false} />
-                <XAxis dataKey="date" stroke="#444" fontSize={10} tickLine={false} axisLine={false} minTickGap={30} />
-                <YAxis stroke="#444" fontSize={10} tickLine={false} axisLine={false} domain={['auto', 'auto']} />
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
+                <XAxis dataKey="date" stroke={CHART_AXIS_COLOR} tick={CHART_AXIS_TICK} tickLine={false} axisLine={false} minTickGap={30} tickFormatter={tickFormatter} />
+                <YAxis stroke={CHART_AXIS_COLOR} tick={CHART_AXIS_TICK} tickLine={false} axisLine={false} domain={['auto', 'auto']} />
                 <Tooltip contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }} />
                 <Area type="monotone" dataKey="DXY" stroke="#38bdf8" strokeWidth={2} fill="url(#dxyGrad)" connectNulls />
               </AreaChart>
@@ -183,7 +210,7 @@ export function DollarMonitor() {
             <CorrBar value={correlations.gold} label="DXY vs Gold (typically negative = safe-haven)" />
           </div>
           <div className="mt-6 pt-4 border-t border-white/5">
-            <p className="text-xs text-white/40 leading-relaxed">
+            <p className="text-xs text-white/60 leading-relaxed">
               A <strong className="text-rose-400">positive DXY/SP500</strong> correlation is unusual and signals an inflation or flight-to-quality episode (2022 pattern). Negative is the typical risk-on regime where weaker dollar accompanies equity strength.
             </p>
           </div>

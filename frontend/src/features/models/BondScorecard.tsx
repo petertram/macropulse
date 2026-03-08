@@ -4,12 +4,23 @@ import {
   ResponsiveContainer, ReferenceLine, Legend
 } from 'recharts';
 import { Landmark, Info, RefreshCw, AlertTriangle, TrendingUp, TrendingDown } from 'lucide-react';
+import { HistoryRangeTabs, useHistoryRange } from '../../shared/components/HistoryRangeTabs';
+import {
+  CHART_AXIS_COLOR,
+  CHART_AXIS_TICK,
+  CHART_GRID_COLOR,
+  CHART_REFERENCE_COLOR,
+  filterHistoryByRange,
+  getHistoryCoverageLabel,
+  getHistoryTickFormatter,
+} from '../../shared/utils';
 
 interface BondComponent {
   name: string;
   value: number | string | null;
   score: -1 | 0 | 1;
   description: string;
+  percentile?: number | null;
 }
 
 interface BondData {
@@ -22,11 +33,8 @@ interface BondData {
     termPremium: number | null;
     curveDynamic: string;
   };
+  percentiles: { realYield: number | null; breakeven: number | null; termPremium: number | null };
   history: { date: string; dgs10: number | null; realYield: number | null; breakeven: number | null }[];
-}
-
-function formatDate(d: string) {
-  return new Date(d).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
 }
 
 function ScoreChip({ score }: { score: -1 | 0 | 1 }) {
@@ -47,6 +55,7 @@ export function BondScorecard() {
   const [data, setData] = useState<BondData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [range, setRange] = useHistoryRange();
 
   useEffect(() => {
     fetch('/api/models/bond-scorecard')
@@ -74,12 +83,15 @@ export function BondScorecard() {
   const scoreLabel = totalScore >= 3 ? 'Bond-Friendly' : totalScore >= 1 ? 'Mildly Favorable' : totalScore <= -3 ? 'Bond-Hostile' : totalScore <= -1 ? 'Mildly Unfavorable' : 'Neutral';
   const scoreBg = totalScore >= 1 ? 'bg-emerald-500/10 border-emerald-500/20' : totalScore <= -1 ? 'bg-rose-500/10 border-rose-500/20' : 'bg-slate-500/10 border-slate-500/20';
 
-  const chartData = data.history.map(h => ({
-    date: formatDate(h.date),
+  const filteredHistory = filterHistoryByRange(data.history, range);
+  const historyCoverage = getHistoryCoverageLabel(data.history);
+  const chartData = filteredHistory.map(h => ({
+    date: h.date,
     '10Y Yield': h.dgs10,
     'Real Yield (TIPS)': h.realYield,
     'Breakeven Inflation': h.breakeven,
   }));
+  const tickFormatter = getHistoryTickFormatter(range);
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
@@ -140,6 +152,9 @@ export function BondScorecard() {
                 <div className="text-sm font-mono text-white/70">
                   {c.value === null ? 'N/A' : typeof c.value === 'number' ? `${c.value.toFixed(2)}%` : c.value}
                 </div>
+                {c.percentile != null && (
+                  <span className="text-[10px] text-white/40 font-mono">{c.percentile.toFixed(0)}th pct</span>
+                )}
                 <ScoreChip score={c.score} />
               </div>
             </div>
@@ -147,26 +162,37 @@ export function BondScorecard() {
         </div>
       </div>
 
+      <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-4">
+        <HistoryRangeTabs
+          value={range}
+          onChange={setRange}
+          coverageLabel={historyCoverage}
+        />
+      </div>
+
       {/* Chart */}
       <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6">
-        <h3 className="text-sm font-medium text-white mb-6 flex items-center gap-2">
-          {data.current.dgs10 && data.current.realYield && data.current.dgs10 > data.current.realYield
-            ? <TrendingUp className="w-4 h-4 text-amber-400" />
-            : <TrendingDown className="w-4 h-4 text-sky-400" />}
-          10Y Nominal, Real Yield & Breakeven Inflation (3 Years)
-        </h3>
+        <div className="flex items-center justify-between gap-3 mb-6">
+          <h3 className="text-sm font-medium text-white flex items-center gap-2">
+            {data.current.dgs10 && data.current.realYield && data.current.dgs10 > data.current.realYield
+              ? <TrendingUp className="w-4 h-4 text-amber-400" />
+              : <TrendingDown className="w-4 h-4 text-sky-400" />}
+            10Y Nominal, Real Yield & Breakeven Inflation
+          </h3>
+          <span className="text-[10px] text-white/35 uppercase tracking-wider">{historyCoverage}</span>
+        </div>
         <div className="h-[300px]">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" vertical={false} />
-              <XAxis dataKey="date" stroke="#444" fontSize={10} tickLine={false} axisLine={false} minTickGap={30} />
-              <YAxis stroke="#444" fontSize={10} tickLine={false} axisLine={false} tickFormatter={v => `${v}%`} />
+              <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
+              <XAxis dataKey="date" stroke={CHART_AXIS_COLOR} tick={CHART_AXIS_TICK} tickLine={false} axisLine={false} minTickGap={30} tickFormatter={tickFormatter} />
+              <YAxis stroke={CHART_AXIS_COLOR} tick={CHART_AXIS_TICK} tickLine={false} axisLine={false} tickFormatter={v => `${v}%`} />
               <Tooltip
                 contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
                 formatter={(v: number) => [`${v?.toFixed(2)}%`]}
               />
               <Legend iconType="circle" wrapperStyle={{ fontSize: '11px', paddingTop: '16px' }} />
-              <ReferenceLine y={0} stroke="#444" strokeDasharray="3 3" />
+              <ReferenceLine y={0} stroke={CHART_REFERENCE_COLOR} strokeDasharray="3 3" />
               <ReferenceLine y={2} stroke="#f59e0b" strokeDasharray="4 4" strokeOpacity={0.3} label={{ value: '2% target', fill: '#f59e0b66', fontSize: 10 }} />
               <Line type="monotone" dataKey="10Y Yield" stroke="#e2e8f0" strokeWidth={2} dot={false} connectNulls />
               <Line type="monotone" dataKey="Real Yield (TIPS)" stroke="#f59e0b" strokeWidth={2} dot={false} connectNulls />

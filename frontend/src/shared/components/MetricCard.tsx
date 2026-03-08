@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line, YAxis } from 'recharts';
 
@@ -10,9 +10,71 @@ interface MetricCardProps {
     chartData?: any[];
     dataKey?: string;
     color?: string;
+    yDomainMode?: 'auto' | 'trimmed' | 'trimmed-tight' | 'trimmed-clipped' | 'stddev-zoom';
 }
 
-export function MetricCard({ title, value, unit, trend, chartData, dataKey, color = "#818cf8" }: MetricCardProps) {
+function getQuantile(sortedValues: number[], quantile: number) {
+    if (sortedValues.length === 0) return null;
+    const index = (sortedValues.length - 1) * quantile;
+    const lower = Math.floor(index);
+    const upper = Math.ceil(index);
+    if (lower === upper) return sortedValues[lower];
+    const weight = index - lower;
+    return sortedValues[lower] * (1 - weight) + sortedValues[upper] * weight;
+}
+
+export function MetricCard({
+    title,
+    value,
+    unit,
+    trend,
+    chartData,
+    dataKey,
+    color = "#818cf8",
+    yDomainMode = 'auto',
+}: MetricCardProps) {
+    const yDomain = useMemo(() => {
+        if (!chartData || !dataKey || yDomainMode === 'auto') return ['auto', 'auto'] as const;
+
+        const values = chartData
+            .map(point => Number(point?.[dataKey]))
+            .filter(value => Number.isFinite(value));
+
+        if (values.length < 8) return ['auto', 'auto'] as const;
+
+        const sorted = [...values].sort((a, b) => a - b);
+        if (yDomainMode === 'stddev-zoom') {
+            const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+            const variance = values.reduce((sum, value) => sum + ((value - mean) ** 2), 0) / values.length;
+            const stdDev = Math.sqrt(variance);
+            const band = stdDev || Math.abs(mean || 1) * 0.1 || 1;
+            return [mean - band, mean + band] as const;
+        }
+
+        const isTight = yDomainMode === 'trimmed-tight';
+        const isClipped = yDomainMode === 'trimmed-clipped';
+        const lowerQuantile = isClipped ? 0.3 : isTight ? 0.2 : 0.1;
+        const upperQuantile = isClipped ? 0.7 : isTight ? 0.8 : 0.9;
+        const paddingRatio = isClipped ? 0.08 : isTight ? 0.12 : 0.18;
+        const lower = getQuantile(sorted, lowerQuantile);
+        const upper = getQuantile(sorted, upperQuantile);
+        const latest = values[values.length - 1];
+
+        if (lower === null || upper === null) return ['auto', 'auto'] as const;
+
+        const paddedMin = isClipped ? lower : Math.min(lower, latest);
+        const paddedMax = isClipped ? upper : Math.max(upper, latest);
+        const span = paddedMax - paddedMin;
+
+        if (span <= 0) {
+            const baseline = Math.abs(paddedMax || 1) * 0.1 || 1;
+            return [paddedMin - baseline, paddedMax + baseline] as const;
+        }
+
+        const padding = span * paddingRatio;
+        return [paddedMin - padding, paddedMax + padding] as const;
+    }, [chartData, dataKey, yDomainMode]);
+
     return (
         <div className="bg-[#0f0f0f] border border-white/10 rounded-xl p-5 flex flex-col justify-between hover:bg-[#141414] transition-colors relative overflow-hidden group min-h-[140px]">
             <div className="relative z-10">
@@ -33,7 +95,7 @@ export function MetricCard({ title, value, unit, trend, chartData, dataKey, colo
                     <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={chartData}>
                             <Line type="monotone" dataKey={dataKey} stroke={color} strokeWidth={2} dot={false} isAnimationActive={false} />
-                            <YAxis domain={['auto', 'auto']} hide />
+                            <YAxis domain={yDomain} hide allowDataOverflow={yDomainMode === 'trimmed-clipped' || yDomainMode === 'stddev-zoom'} />
                         </LineChart>
                     </ResponsiveContainer>
                 </div>

@@ -32,7 +32,9 @@ import {
   Package,
   RefreshCcw,
   Settings,
-  Key
+  Key,
+  Gauge,
+  PieChart
 } from 'lucide-react';
 
 import { cn } from './shared/utils';
@@ -56,6 +58,8 @@ import { EconomicCycles } from './features/models/EconomicCycles';
 import { FedPolicyTracker } from './features/models/FedPolicyTracker';
 import { FactorDashboard } from './features/models/FactorDashboard';
 import { BondScorecard } from './features/models/BondScorecard';
+import { FCI } from './features/models/FCI';
+import { EquityRiskPremium } from './features/models/EquityRiskPremium';
 import { InflationDecomposition } from './features/monitors/InflationDecomposition';
 import { CommodityMonitor } from './features/monitors/CommodityMonitor';
 import { DollarMonitor } from './features/monitors/DollarMonitor';
@@ -251,6 +255,8 @@ export default function App() {
             { id: 'fed-policy', label: 'Fed Policy Tracker', icon: Landmark },
             { id: 'factors', label: 'Factor Dashboard', icon: Layers },
             { id: 'bond-scorecard', label: 'Bond Scorecard', icon: DollarSign },
+            { id: 'fci', label: 'Financial Conditions', icon: Gauge },
+            { id: 'erp', label: 'Equity Risk Premium', icon: PieChart },
           ].map(item => (
             <button
               key={item.id}
@@ -369,7 +375,7 @@ export default function App() {
         <main className={cn("px-4 md:px-8 py-8 h-[calc(100vh-4rem)] overflow-y-auto")}>
           {activeModel === 'overview' && <Overview setActiveModel={setActiveModel} fredData={fredData} rawHistoryData={rawHistoryData} loading={loading} lastSynced={syncStatus.lastSyncDate} />}
           {activeModel === 'credit' && <CreditCycle />}
-          {activeModel === 'liquidity' && <LiquidityPulse fredData={fredData} rawHistoryData={rawHistoryData} loading={loading} />}
+          {activeModel === 'liquidity' && <LiquidityPulse />}
           {activeModel === 'inflation' && <InflationTracker fredData={fredData} rawHistoryData={rawHistoryData} loading={loading} />}
           {activeModel === 'surprise' && <EconomicSurprise />}
           {activeModel === 'recession' && <RecessionProbability />}
@@ -384,6 +390,8 @@ export default function App() {
           {activeModel === 'fed-policy' && <FedPolicyTracker />}
           {activeModel === 'factors' && <FactorDashboard />}
           {activeModel === 'bond-scorecard' && <BondScorecard />}
+          {activeModel === 'fci' && <FCI />}
+          {activeModel === 'erp' && <EquityRiskPremium />}
           {activeModel === 'inflation-decomp' && <InflationDecomposition />}
           {activeModel === 'commodities' && <CommodityMonitor />}
           {activeModel === 'dollar' && <DollarMonitor />}

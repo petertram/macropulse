@@ -4,6 +4,17 @@ import {
   ResponsiveContainer, Legend
 } from 'recharts';
 import { Globe, Info, RefreshCw, AlertTriangle, TrendingUp, TrendingDown } from 'lucide-react';
+import { HistoryRangeTabs, useHistoryRange } from '../../shared/components/HistoryRangeTabs';
+import {
+  CHART_AXIS_COLOR,
+  CHART_AXIS_TICK,
+  CHART_GRID_COLOR,
+  downsampleHistory,
+  filterHistoryByRange,
+  getHistoryCoverageLabel,
+  getHistoryTickFormatter,
+  hasMixedCadenceHistory,
+} from '../../shared/utils';
 
 interface CommodityStats {
   price: number | null;
@@ -25,7 +36,7 @@ interface CommodityData {
 }
 
 function ReturnPill({ value }: { value: number | null }) {
-  if (value === null) return <span className="text-white/30 text-xs font-mono">N/A</span>;
+  if (value === null) return <span className="text-white/55 text-xs font-mono">N/A</span>;
   const pos = value >= 0;
   return (
     <span className={`text-xs font-mono font-medium ${pos ? 'text-emerald-400' : 'text-rose-400'}`}>
@@ -37,7 +48,7 @@ function ReturnPill({ value }: { value: number | null }) {
 function CommodityCard({ label, emoji, stats, color }: { label: string; emoji: string; stats: CommodityStats; color: string }) {
   return (
     <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-5">
-      <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-3">{emoji} {label}</div>
+      <div className="text-xs font-medium text-white/65 uppercase tracking-wider mb-3">{emoji} {label}</div>
       <div className={`text-3xl font-light font-mono ${color} mb-4`}>
         {stats.price !== null ? `$${stats.price.toFixed(2)}` : 'N/A'}
       </div>
@@ -58,13 +69,14 @@ function getCopperSignalStyle(signal: string) {
   if (signal === 'Moderate Growth') return 'text-green-400 bg-green-500/10 border-green-500/20';
   if (signal === 'Slowing') return 'text-amber-400 bg-amber-500/10 border-amber-500/20';
   if (signal === 'Contraction') return 'text-rose-400 bg-rose-500/10 border-rose-500/20';
-  return 'text-white/40 bg-white/5 border-white/10';
+  return 'text-white/65 bg-white/10 border-white/15';
 }
 
 export function CommodityMonitor() {
   const [data, setData] = useState<CommodityData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [range, setRange] = useHistoryRange();
 
   useEffect(() => {
     fetch('/api/models/commodities')
@@ -89,12 +101,14 @@ export function CommodityMonitor() {
 
   const { current, ratioHistory } = data;
 
-  // Decimate ratio history to weekly for charting
-  const chartData = ratioHistory.filter((_, i) => i % 5 === 0).map(h => ({
-    date: new Date(h.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+  const filteredRatioHistory = filterHistoryByRange(ratioHistory, range);
+  const historyCoverage = getHistoryCoverageLabel(ratioHistory);
+  const chartData = downsampleHistory(filteredRatioHistory, range === 'ALL' ? 240 : 160).map(h => ({
+    date: h.date,
     'Copper/Gold': h.copperGold,
     'Gold/Oil': h.goldOil,
   }));
+  const tickFormatter = getHistoryTickFormatter(range);
 
   const copperGoldTrend = ratioHistory.length >= 60
     ? ratioHistory[ratioHistory.length - 1].copperGold! > ratioHistory[ratioHistory.length - 60].copperGold!
@@ -122,7 +136,7 @@ export function CommodityMonitor() {
       {/* Key Ratios */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-5">
-          <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">Copper / Gold Ratio</div>
+          <div className="text-xs font-medium text-white/65 uppercase tracking-wider mb-2">Copper / Gold Ratio</div>
           <div className="text-3xl font-light font-mono text-amber-400">
             {current.copperGoldRatio !== null ? current.copperGoldRatio.toFixed(4) : 'N/A'}
           </div>
@@ -132,39 +146,51 @@ export function CommodityMonitor() {
               {copperGoldTrend ? 'Rising — growth signal' : 'Falling — risk-off signal'}
             </div>
           )}
-          <p className="text-[10px] text-white/30 mt-2">Rising = cyclical optimism; Falling = safe-haven flight</p>
+          <p className="text-[10px] text-white/55 mt-2">Rising = cyclical optimism; Falling = safe-haven flight</p>
         </div>
 
         <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-5">
-          <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">Gold / Oil Ratio</div>
+          <div className="text-xs font-medium text-white/65 uppercase tracking-wider mb-2">Gold / Oil Ratio</div>
           <div className="text-3xl font-light font-mono text-yellow-400">
             {current.goldOilRatio !== null ? current.goldOilRatio.toFixed(2) : 'N/A'}
           </div>
-          <p className="text-[10px] text-white/30 mt-2">Rising = deflationary/risk-off; Falling = inflationary/risk-on</p>
+          <p className="text-[10px] text-white/55 mt-2">Rising = deflationary/risk-off; Falling = inflationary/risk-on</p>
         </div>
 
         <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-5">
-          <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">Dr. Copper Signal</div>
+          <div className="text-xs font-medium text-white/65 uppercase tracking-wider mb-2">Dr. Copper Signal</div>
           <div className={`inline-flex items-center px-3 py-1.5 rounded-lg border text-sm font-bold uppercase tracking-wider mt-1 ${getCopperSignalStyle(current.copperSignal)}`}>
             {current.copperSignal}
           </div>
-          <p className="text-[10px] text-white/30 mt-3">Based on Copper 12M return: &gt;+10% = Strong Growth, &lt;0% = Contraction</p>
+          <p className="text-[10px] text-white/55 mt-3">Based on Copper 12M return: &gt;+10% = Strong Growth, &lt;0% = Contraction</p>
         </div>
+      </div>
+
+      <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-4">
+        <HistoryRangeTabs
+          value={range}
+          onChange={setRange}
+          coverageLabel={historyCoverage}
+          showMixedCadenceNote={hasMixedCadenceHistory(ratioHistory)}
+        />
       </div>
 
       {/* Ratio Charts */}
       <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6">
-        <h3 className="text-sm font-medium text-white mb-6 flex items-center gap-2">
-          <Globe className="w-4 h-4 text-emerald-400" />
-          Copper/Gold & Gold/Oil Ratios (1 Year)
-        </h3>
+        <div className="flex items-center justify-between gap-3 mb-6">
+          <h3 className="text-sm font-medium text-white flex items-center gap-2">
+            <Globe className="w-4 h-4 text-emerald-400" />
+            Copper/Gold &amp; Gold/Oil Ratios
+          </h3>
+          <span className="text-[10px] text-white/60 uppercase tracking-wider">{historyCoverage}</span>
+        </div>
         <div className="h-[300px]">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" vertical={false} />
-              <XAxis dataKey="date" stroke="#444" fontSize={10} tickLine={false} axisLine={false} minTickGap={40} />
-              <YAxis yAxisId="left" stroke="#f59e0b" fontSize={10} tickLine={false} axisLine={false} />
-              <YAxis yAxisId="right" orientation="right" stroke="#fde047" fontSize={10} tickLine={false} axisLine={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
+              <XAxis dataKey="date" stroke={CHART_AXIS_COLOR} tick={CHART_AXIS_TICK} tickLine={false} axisLine={false} minTickGap={40} tickFormatter={tickFormatter} />
+              <YAxis yAxisId="left" stroke={CHART_AXIS_COLOR} tick={CHART_AXIS_TICK} tickLine={false} axisLine={false} />
+              <YAxis yAxisId="right" orientation="right" stroke={CHART_AXIS_COLOR} tick={CHART_AXIS_TICK} tickLine={false} axisLine={false} />
               <Tooltip
                 contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
                 formatter={(v: number, name: string) => [v?.toFixed(4), name]}

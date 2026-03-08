@@ -22,6 +22,15 @@ import {
   AreaChart,
   Area
 } from 'recharts';
+import { HistoryRangeTabs, useHistoryRange } from '../../shared/components/HistoryRangeTabs';
+import {
+  CHART_AXIS_COLOR,
+  CHART_AXIS_TICK,
+  CHART_GRID_COLOR,
+  filterHistoryByRange,
+  getHistoryCoverageLabel,
+  getHistoryTickFormatter,
+} from '../../shared/utils';
 
 interface EconomicCyclesData {
   historicalData: { year: string; equities: number | null; bonds: number | null }[];
@@ -38,6 +47,7 @@ export function EconomicCycles() {
   const [data, setData] = useState<EconomicCyclesData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [range, setRange] = useHistoryRange();
 
   useEffect(() => {
     fetch('/api/models/economic-cycles')
@@ -86,15 +96,29 @@ export function EconomicCycles() {
     }
   }
 
+  const filteredAnnualData = filterHistoryByRange(
+    annualData.map(point => ({ ...point, date: `${point.year}-12-31` })),
+    range
+  );
+
+  const filteredAnnualCorr = filterHistoryByRange(
+    annualCorr.map(point => ({ ...point, date: `${point.year}-12-31` })),
+    range
+  );
+  const historyCoverage = getHistoryCoverageLabel(
+    annualData.map(point => ({ date: `${point.year}-12-31` }))
+  );
+  const tickFormatter = getHistoryTickFormatter(range);
+
   // Map NBER dates to year strings for ReferenceArea
   const recessionAreas = data.recessionPeriods.map(r => ({
-    start: r.start.substring(0, 4),
-    end: r.end.substring(0, 4),
+    start: `${r.start.substring(0, 4)}-12-31`,
+    end: `${r.end.substring(0, 4)}-12-31`,
     label: r.label,
   }));
 
   // Latest correlation for analysis
-  const latestCorr = annualCorr.length > 0 ? annualCorr[annualCorr.length - 1].correlation : null;
+  const latestCorr = filteredAnnualCorr.length > 0 ? filteredAnnualCorr[filteredAnnualCorr.length - 1].correlation : null;
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
@@ -106,19 +130,30 @@ export function EconomicCycles() {
         </p>
       </div>
 
+      <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-4">
+        <HistoryRangeTabs
+          value={range}
+          onChange={setRange}
+          coverageLabel={historyCoverage}
+        />
+      </div>
+
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         {/* Main Chart */}
         <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6">
-          <h3 className="text-sm font-medium text-white mb-6 flex items-center gap-2">
-            <LineChartIcon className="w-4 h-4 text-emerald-400" />
-            Historical Asset Performance (Indexed to 100 at 1990)
-          </h3>
+          <div className="flex items-center justify-between gap-3 mb-6">
+            <h3 className="text-sm font-medium text-white flex items-center gap-2">
+              <LineChartIcon className="w-4 h-4 text-emerald-400" />
+              Historical Asset Performance
+            </h3>
+            <span className="text-[10px] text-white/35 uppercase tracking-wider">{historyCoverage}</span>
+          </div>
           <div className="h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={annualData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" vertical={false} />
-                <XAxis dataKey="year" stroke="#444" fontSize={10} tickLine={false} axisLine={false} />
-                <YAxis stroke="#444" fontSize={10} tickLine={false} axisLine={false} />
+              <LineChart data={filteredAnnualData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
+                <XAxis dataKey="date" stroke={CHART_AXIS_COLOR} tick={CHART_AXIS_TICK} tickLine={false} axisLine={false} tickFormatter={tickFormatter} />
+                <YAxis stroke={CHART_AXIS_COLOR} tick={CHART_AXIS_TICK} tickLine={false} axisLine={false} />
                 <Tooltip contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }} itemStyle={{ fontSize: '12px' }} labelStyle={{ color: '#888', marginBottom: '4px', fontSize: '12px' }} />
                 <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
 
@@ -141,22 +176,25 @@ export function EconomicCycles() {
 
         {/* Correlation Chart */}
         <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6">
-          <h3 className="text-sm font-medium text-white mb-6 flex items-center gap-2">
-            <Activity className="w-4 h-4 text-amber-400" />
-            Stock-Bond 3-Year Rolling Correlation
-          </h3>
+          <div className="flex items-center justify-between gap-3 mb-6">
+            <h3 className="text-sm font-medium text-white flex items-center gap-2">
+              <Activity className="w-4 h-4 text-amber-400" />
+              Stock-Bond 3-Year Rolling Correlation
+            </h3>
+            <span className="text-[10px] text-white/35 uppercase tracking-wider">{historyCoverage}</span>
+          </div>
           <div className="h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={annualCorr} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <AreaChart data={filteredAnnualCorr} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorCorrelation" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3} />
                     <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" vertical={false} />
-                <XAxis dataKey="year" stroke="#444" fontSize={10} tickLine={false} axisLine={false} />
-                <YAxis stroke="#444" fontSize={10} tickLine={false} axisLine={false} domain={[-1, 1]} ticks={[-1, -0.5, 0, 0.5, 1]} />
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
+                <XAxis dataKey="date" stroke={CHART_AXIS_COLOR} tick={CHART_AXIS_TICK} tickLine={false} axisLine={false} tickFormatter={tickFormatter} />
+                <YAxis stroke={CHART_AXIS_COLOR} tick={CHART_AXIS_TICK} tickLine={false} axisLine={false} domain={[-1, 1]} ticks={[-1, -0.5, 0, 0.5, 1]} />
                 <Tooltip contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }} itemStyle={{ fontSize: '12px', color: '#f59e0b' }} labelStyle={{ color: '#888', marginBottom: '4px', fontSize: '12px' }} formatter={(value: number) => [value.toFixed(2), 'Correlation']} />
                 <ReferenceArea y1={0} y2={1} fill="#ef4444" fillOpacity={0.05} />
                 <ReferenceArea y1={-1} y2={0} fill="#10b981" fillOpacity={0.05} />

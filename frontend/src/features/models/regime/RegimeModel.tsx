@@ -1,16 +1,26 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea,
+  ScatterChart, Scatter, ReferenceLine, ZAxis
 } from 'recharts';
-import { Activity, Cpu, RefreshCw, AlertTriangle, Globe, TrendingUp, TrendingDown, Info } from 'lucide-react';
+import { Activity, Cpu, RefreshCw, AlertTriangle, Globe, TrendingUp, TrendingDown, Info, ArrowUp, ArrowDown, Minus } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { HistoryRangeTabs, useHistoryRange } from '../../../shared/components/HistoryRangeTabs';
+import {
+  CHART_AXIS_COLOR,
+  CHART_AXIS_TICK,
+  CHART_GRID_COLOR,
+  CHART_REFERENCE_COLOR,
+  filterHistoryByRange,
+  getHistoryCoverageLabel,
+  getHistoryTickFormatter,
+} from '../../../shared/utils';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-// Bridgewater 4-quadrant regime configuration
 const REGIME_CONFIG: Record<number, {
   name: string;
   color: string;
@@ -63,6 +73,8 @@ const REGIME_CONFIG: Record<number, {
   },
 };
 
+interface ScatterPoint { date: string; growthCoord: number; inflationCoord: number; regime: number }
+
 interface RegimePoint {
   date: string;
   regime: number;
@@ -80,6 +92,13 @@ interface RegimeData {
   growthSignal: number | null;
   inflationYoY: number | null;
   confidence: number | null;
+  growthImpulse: number | null;
+  inflationImpulse: number | null;
+  regimeMomentum: 'Strengthening' | 'Established' | 'Shifting';
+  regimeConsistency: number;
+  growthCoord: number | null;
+  inflationCoord: number | null;
+  scatterTrail: ScatterPoint[];
   history: RegimePoint[];
 }
 
@@ -89,10 +108,33 @@ function getAssetColor(posture: string): string {
   return 'text-amber-400';
 }
 
+function getMomentumStyle(m: string) {
+  if (m === 'Strengthening') return { text: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20' };
+  if (m === 'Established') return { text: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20' };
+  return { text: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20' };
+}
+
+function ImpulseArrow({ value }: { value: number | null }) {
+  if (value === null) return <Minus className="w-3 h-3 text-white/30" />;
+  if (value > 0.05) return <ArrowUp className="w-3 h-3 text-emerald-400" />;
+  if (value < -0.05) return <ArrowDown className="w-3 h-3 text-rose-400" />;
+  return <Minus className="w-3 h-3 text-white/40" />;
+}
+
+// Custom dot for scatter trail (faded for older, bright for latest)
+function TrailDot(props: any) {
+  const { cx, cy, payload, isLatest } = props;
+  const config = REGIME_CONFIG[payload.regime] ?? REGIME_CONFIG[3];
+  const opacity = isLatest ? 1 : 0.35;
+  const r = isLatest ? 7 : 4;
+  return <circle cx={cx} cy={cy} r={r} fill={config.color} fillOpacity={opacity} stroke="none" />;
+}
+
 export function RegimeModel() {
   const [data, setData] = useState<RegimeData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [range, setRange] = useHistoryRange();
 
   useEffect(() => {
     fetch('/api/models/macro-regime')
@@ -101,17 +143,20 @@ export function RegimeModel() {
       .catch(err => { setError(err.message); setLoading(false); });
   }, []);
 
-  // Compute reference areas for regime background coloring
+  const filteredHistory = useMemo(() => filterHistoryByRange(data?.history ?? [], range), [data, range]);
+  const historyCoverage = useMemo(() => getHistoryCoverageLabel(data?.history ?? []), [data]);
+  const tickFormatter = useMemo(() => getHistoryTickFormatter(range), [range]);
+
   const referenceAreas = useMemo(() => {
-    if (!data?.history?.length) return [];
+    if (!filteredHistory.length) return [];
     const areas: { start: string; end: string; regime: number; color: string }[] = [];
     let startIdx = 0;
-    const h = data.history;
+    const h = filteredHistory;
     for (let i = 1; i < h.length; i++) {
       if (h[i].regime !== h[i - 1].regime || i === h.length - 1) {
         areas.push({
-          start: h[startIdx].date.substring(0, 7),
-          end: h[i].date.substring(0, 7),
+          start: h[startIdx].date,
+          end: h[i].date,
           regime: h[startIdx].regime,
           color: REGIME_CONFIG[h[startIdx].regime].bg,
         });
@@ -119,18 +164,14 @@ export function RegimeModel() {
       }
     }
     return areas;
-  }, [data]);
+  }, [filteredHistory]);
 
-  // Build regime probability from recent 12-month window
   const regimeProbabilities = useMemo(() => {
     if (!data?.history?.length) return [];
     const recent = data.history.slice(-12);
     const counts: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0 };
     for (const pt of recent) counts[pt.regime]++;
-    return [0, 1, 2, 3].map(r => ({
-      regime: r,
-      prob: counts[r] / recent.length,
-    }));
+    return [0, 1, 2, 3].map(r => ({ regime: r, prob: counts[r] / recent.length }));
   }, [data]);
 
   if (loading) {
@@ -152,11 +193,20 @@ export function RegimeModel() {
   }
 
   const currentConfig = REGIME_CONFIG[data.currentRegime];
-  const chartData = data.history.map(pt => ({
-    displayDate: pt.date.substring(0, 7),
+  const momentumStyle = getMomentumStyle(data.regimeMomentum ?? 'Established');
+  const chartData = filteredHistory.map(pt => ({
+    date: pt.date,
     inflationYoY: pt.inflationYoY,
     growthSignal: pt.growthSignal,
     regime: pt.regime,
+  }));
+
+  // Scatter trail: all points + current
+  const trail = (data.scatterTrail ?? []).map((pt, i, arr) => ({
+    x: pt.growthCoord,
+    y: pt.inflationCoord,
+    regime: pt.regime,
+    isLatest: i === arr.length - 1,
   }));
 
   return (
@@ -165,7 +215,7 @@ export function RegimeModel() {
       <div className="bg-[#141414] rounded-xl border border-white/10 p-5">
         <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2"><Info className="w-4 h-4 text-blue-400" /> Methodology (Bridgewater 4-Quadrant Framework)</h3>
         <p className="text-xs text-white/60 leading-relaxed">
-          Based on Ray Dalio / Bridgewater's research: almost all asset returns can be explained by growth and inflation conditions relative to expectations. <strong>Growth axis</strong>: CFNAI (Chicago Fed National Activity Index) — above 0 = accelerating, below 0 = decelerating. <strong>Inflation axis</strong>: CPI YoY% — above 2.5% = rising, below 2.5% = falling. Confidence reflects the strength of both signals. Regime is updated monthly.
+          Based on Ray Dalio / Bridgewater's research: almost all asset returns can be explained by growth and inflation conditions relative to expectations. <strong>Growth axis</strong>: CFNAI (Chicago Fed National Activity Index) — above 0 = accelerating. <strong>Inflation axis</strong>: CPI YoY% — above 2.5% = rising. <strong>Impulse arrows</strong> show 3-month momentum in each signal. <strong>Regime Momentum</strong> reflects whether the current regime is deepening or transitioning based on the last 6 months of regime history.
         </p>
       </div>
 
@@ -194,6 +244,14 @@ export function RegimeModel() {
             <span className="text-[10px] text-white/40 mt-0.5">{data.description}</span>
           </div>
           <div className="h-10 w-px bg-white/10"></div>
+          <div className="flex flex-col items-end gap-1">
+            <span className="text-[10px] uppercase tracking-widest text-white/40">Momentum</span>
+            <div className={cn('px-3 py-1 rounded-md text-xs font-semibold border', momentumStyle.bg, momentumStyle.text)}>
+              {data.regimeMomentum ?? 'Established'}
+            </div>
+            <span className="text-[10px] text-white/30">{data.regimeConsistency ?? 0}/6 months consistent</span>
+          </div>
+          <div className="h-10 w-px bg-white/10"></div>
           <div className="flex flex-col items-end">
             <span className="text-[10px] uppercase tracking-widest text-white/40 mb-1">Confidence</span>
             <div className={cn('px-3 py-1 rounded-md text-sm font-semibold border', currentConfig.bgClass, currentConfig.textClass, currentConfig.borderClass)}>
@@ -213,7 +271,12 @@ export function RegimeModel() {
             </span>
             {data.growthSignal !== null && (data.growthSignal >= 0 ? <TrendingUp className="w-4 h-4 text-emerald-400" /> : <TrendingDown className="w-4 h-4 text-rose-400" />)}
           </div>
-          <p className="text-[10px] text-white/30 mt-1">{data.growthSignal !== null && data.growthSignal >= 0 ? 'Accelerating (>0)' : 'Decelerating (<0)'}</p>
+          <div className="flex items-center gap-1.5 mt-1">
+            <ImpulseArrow value={data.growthImpulse} />
+            <p className="text-[10px] text-white/30">
+              {data.growthImpulse !== null ? `3M Δ: ${data.growthImpulse > 0 ? '+' : ''}${data.growthImpulse.toFixed(2)}` : data.growthSignal !== null && data.growthSignal >= 0 ? 'Accelerating (>0)' : 'Decelerating (<0)'}
+            </p>
+          </div>
         </div>
 
         <div className="bg-[#0f0f0f] rounded-xl border border-white/10 p-4">
@@ -223,10 +286,14 @@ export function RegimeModel() {
               {data.inflationYoY !== null ? `${data.inflationYoY.toFixed(1)}%` : 'N/A'}
             </span>
           </div>
-          <p className="text-[10px] text-white/30 mt-1">{data.inflationYoY !== null && data.inflationYoY >= 2.5 ? 'Rising (>2.5%)' : 'Falling (<2.5%)'}</p>
+          <div className="flex items-center gap-1.5 mt-1">
+            <ImpulseArrow value={data.inflationImpulse} />
+            <p className="text-[10px] text-white/30">
+              {data.inflationImpulse !== null ? `3M Δ: ${data.inflationImpulse > 0 ? '+' : ''}${data.inflationImpulse.toFixed(1)}%` : data.inflationYoY !== null && data.inflationYoY >= 2.5 ? 'Rising (>2.5%)' : 'Falling (<2.5%)'}
+            </p>
+          </div>
         </div>
 
-        {/* Asset allocation */}
         {(['equities', 'bonds'] as const).map(asset => (
           <div key={asset} className="bg-[#0f0f0f] rounded-xl border border-white/10 p-4">
             <div className="text-[10px] uppercase tracking-wider text-white/40 mb-1">{asset.charAt(0).toUpperCase() + asset.slice(1)}</div>
@@ -236,15 +303,24 @@ export function RegimeModel() {
         ))}
       </div>
 
+      <div className="bg-[#0f0f0f] rounded-xl border border-white/10 p-4">
+        <HistoryRangeTabs
+          value={range}
+          onChange={setRange}
+          coverageLabel={historyCoverage}
+        />
+      </div>
+
       <div className="flex flex-col xl:flex-row gap-6">
         {/* Regime History Chart */}
-        <div className="flex-1 bg-[#0f0f0f] rounded-xl border border-white/10 p-5 flex flex-col min-h-[400px]">
+        <div className="flex-1 bg-[#0f0f0f] rounded-xl border border-white/10 p-5 flex flex-col min-h-[380px]">
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-sm font-semibold text-white flex items-center gap-2">
               <Activity className="w-4 h-4 text-white/40" />
-              Regime History — CPI YoY % (10 Years)
+              Regime History — CPI YoY %
             </h3>
-            <div className="flex items-center gap-3 text-xs flex-wrap">
+            <div className="flex items-center gap-3 text-xs flex-wrap justify-end">
+              <span className="text-[10px] text-white/35 uppercase tracking-wider">{historyCoverage}</span>
               {[0, 1, 2, 3].map(r => (
                 <div key={r} className="flex items-center gap-1.5">
                   <div className="w-2 h-2 rounded-full" style={{ backgroundColor: REGIME_CONFIG[r].color }}></div>
@@ -262,9 +338,9 @@ export function RegimeModel() {
                     <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                <XAxis dataKey="displayDate" stroke="rgba(255,255,255,0.4)" tick={{ fill: 'rgba(255,255,255,0.7)', fontSize: 10 }} tickMargin={10} minTickGap={40} />
-                <YAxis domain={['auto', 'auto']} stroke="rgba(255,255,255,0.4)" tick={{ fill: 'rgba(255,255,255,0.7)', fontSize: 10 }} tickFormatter={(v) => `${v}%`} />
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
+                <XAxis dataKey="date" stroke={CHART_AXIS_COLOR} tick={CHART_AXIS_TICK} tickLine={false} axisLine={false} tickMargin={10} minTickGap={40} tickFormatter={tickFormatter} />
+                <YAxis domain={['auto', 'auto']} stroke={CHART_AXIS_COLOR} tick={CHART_AXIS_TICK} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} />
                 <Tooltip
                   contentStyle={{ backgroundColor: '#141414', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '8px', fontSize: '12px' }}
                   itemStyle={{ color: '#fff' }}
@@ -285,7 +361,47 @@ export function RegimeModel() {
 
         {/* Right Sidebar */}
         <div className="w-full xl:w-72 flex-shrink-0 flex flex-col gap-4">
-          {/* Regime Probabilities (12-month frequency) */}
+          {/* 2D Scatter — Regime Position */}
+          <div className="bg-[#0f0f0f] rounded-xl border border-white/10 p-5">
+            <h3 className="text-sm font-semibold text-white mb-1 flex items-center gap-2">
+              <Globe className="w-4 h-4 text-white/40" />
+              Current Position (12M Trail)
+            </h3>
+            <p className="text-[10px] text-white/30 mb-3">X = CFNAI (growth) · Y = CPI YoY − 2.5% (inflation). Dot = current.</p>
+            <div className="h-[200px] w-full relative">
+              {/* Quadrant labels */}
+              <div className="absolute inset-0 pointer-events-none z-10">
+                <div className="absolute top-1 left-2 text-[9px] text-emerald-400/60 font-medium">GOLDILOCKS</div>
+                <div className="absolute top-1 right-2 text-[9px] text-sky-400/60 font-medium text-right">REFLATION</div>
+                <div className="absolute bottom-1 left-2 text-[9px] text-red-400/60 font-medium">DEFLATION</div>
+                <div className="absolute bottom-1 right-2 text-[9px] text-orange-400/60 font-medium text-right">STAGFLATION</div>
+              </div>
+              <ResponsiveContainer width="100%" height="100%">
+                <ScatterChart margin={{ top: 10, right: 10, bottom: 10, left: 10 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} />
+                  <XAxis type="number" dataKey="x" domain={[-2, 2]} stroke={CHART_AXIS_COLOR} tick={{ ...CHART_AXIS_TICK, fontSize: 9 }} tickFormatter={(v) => `${v}`} />
+                  <YAxis type="number" dataKey="y" domain={[-2, 2]} stroke={CHART_AXIS_COLOR} tick={{ ...CHART_AXIS_TICK, fontSize: 9 }} tickFormatter={(v) => `${v}%`} />
+                  <ZAxis range={[30, 30]} />
+                  <ReferenceLine x={0} stroke={CHART_REFERENCE_COLOR} strokeWidth={1} />
+                  <ReferenceLine y={0} stroke={CHART_REFERENCE_COLOR} strokeWidth={1} />
+                  <Tooltip
+                    cursor={{ strokeDasharray: '3 3' }}
+                    contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', fontSize: '11px' }}
+                    formatter={(_: any, name: string, props: any) => {
+                      const regime = REGIME_CONFIG[props.payload.regime]?.name ?? 'Unknown';
+                      return [regime, 'Regime'];
+                    }}
+                  />
+                  <Scatter
+                    data={trail}
+                    shape={(props: any) => <TrailDot {...props} isLatest={props.payload.isLatest} />}
+                  />
+                </ScatterChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Regime Probabilities */}
           <div className="bg-[#0f0f0f] rounded-xl border border-white/10 p-5">
             <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
               <Cpu className="w-4 h-4 text-white/40" />
@@ -311,7 +427,7 @@ export function RegimeModel() {
           </div>
 
           {/* Asset Allocation Matrix */}
-          <div className="bg-[#0f0f0f] rounded-xl border border-white/10 p-5 flex-1">
+          <div className="bg-[#0f0f0f] rounded-xl border border-white/10 p-5">
             <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
               <Activity className="w-4 h-4 text-white/40" />
               Asset Allocation Signal
@@ -328,7 +444,7 @@ export function RegimeModel() {
             </div>
             <div className="mt-4 pt-3 border-t border-white/10">
               <p className="text-[10px] text-white/40 leading-relaxed">
-                Based on empirical Bridgewater research. Each quadrant systematically advantages different asset classes. Use as a directional tilt, not a binary switch.
+                Based on empirical Bridgewater research. Each quadrant systematically advantages different asset classes.
               </p>
             </div>
           </div>

@@ -21,6 +21,16 @@ import {
   Line,
   Legend
 } from 'recharts';
+import { HistoryRangeTabs, useHistoryRange } from '../../shared/components/HistoryRangeTabs';
+import {
+  CHART_AXIS_COLOR,
+  CHART_AXIS_TICK,
+  CHART_GRID_COLOR,
+  filterHistoryByRange,
+  getHistoryCoverageLabel,
+  getHistoryTickFormatter,
+  hasMixedCadenceHistory,
+} from '../../shared/utils';
 
 interface InflationTrackerProps {
   fredData: any[];
@@ -29,9 +39,10 @@ interface InflationTrackerProps {
 }
 
 export function InflationTracker({ fredData, rawHistoryData, loading }: InflationTrackerProps) {
+  const [range, setRange] = useHistoryRange();
   const currentBreakeven = fredData.find(d => d.id === 'T10YIE')?.value || 2.45;
-  const currentSticky = fredData.find(d => d.id === 'STICKCPID160SFRBATL')?.value || 4.1;
-  const lastUpdate = fredData.find(d => d.id === 'STICKCPID160SFRBATL')?.date;
+  const currentSticky = fredData.find(d => d.id === 'CORESTICKM159SFRBATL')?.value || 4.1;
+  const lastUpdate = fredData.find(d => d.id === 'CORESTICKM159SFRBATL')?.date;
 
   const processedHistory = useMemo(() => {
     if (!rawHistoryData || rawHistoryData.length === 0) return [];
@@ -51,12 +62,12 @@ export function InflationTracker({ fredData, rawHistoryData, loading }: Inflatio
       if (date.getFullYear() < 1990) return;
 
       if (item.T10YIE !== undefined && item.T10YIE !== null) currentBreakevenVal = item.T10YIE;
-      if (item.STICKCPID160SFRBATL !== undefined && item.STICKCPID160SFRBATL !== null) currentStickyVal = item.STICKCPID160SFRBATL;
+      if (item.CORESTICKM159SFRBATL !== undefined && item.CORESTICKM159SFRBATL !== null) currentStickyVal = item.CORESTICKM159SFRBATL;
 
       const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       monthlyMap.set(monthKey, {
-        date: date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
-        fullDate: item.date,
+        date: item.date,
+        displayDate: date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
         breakeven: currentBreakevenVal,
         sticky_cpi: currentStickyVal,
       });
@@ -64,6 +75,9 @@ export function InflationTracker({ fredData, rawHistoryData, loading }: Inflatio
 
     return Array.from(monthlyMap.values());
   }, [rawHistoryData]);
+  const filteredHistory = useMemo(() => filterHistoryByRange(processedHistory, range), [processedHistory, range]);
+  const historyCoverage = getHistoryCoverageLabel(processedHistory);
+  const tickFormatter = getHistoryTickFormatter(range);
 
   // Regime Logic
   const getRegime = () => {
@@ -91,69 +105,80 @@ export function InflationTracker({ fredData, rawHistoryData, loading }: Inflatio
       {/* Header Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6">
-          <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">10Y Breakeven Inflation</div>
+          <div className="text-xs font-medium text-white/65 uppercase tracking-wider mb-2">10Y Breakeven Inflation</div>
           <div className="flex items-baseline gap-2">
             <div className="text-3xl font-light text-white font-mono">{currentBreakeven.toFixed(2)}%</div>
             <div className="text-xs font-medium text-amber-400 flex items-center">
               <ArrowUpRight className="w-3 h-3" /> Market-Based
             </div>
           </div>
-          <p className="text-[10px] text-white/30 mt-2">Expectation (T10YIE) - Updated {lastUpdate || '---'}</p>
+          <p className="text-[10px] text-white/55 mt-2">Expectation (T10YIE) - Updated {lastUpdate || '---'}</p>
         </div>
 
         <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6">
-          <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">Sticky Price CPI</div>
+          <div className="text-xs font-medium text-white/65 uppercase tracking-wider mb-2">Sticky Price CPI</div>
           <div className="flex items-baseline gap-2">
             <div className="text-3xl font-light text-white font-mono">{currentSticky.toFixed(1)}%</div>
             <div className="text-xs font-medium text-amber-400 flex items-center">
               <TrendingUp className="w-3 h-3 mr-1" /> Core Pressure
             </div>
           </div>
-          <p className="text-[10px] text-white/30 mt-2">Atlanta Fed Sticky CPI YoY</p>
+          <p className="text-[10px] text-white/55 mt-2">Atlanta Fed Sticky CPI YoY</p>
         </div>
 
         <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6">
-          <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">Inflation Regime</div>
+          <div className="text-xs font-medium text-white/65 uppercase tracking-wider mb-2">Inflation Regime</div>
           <div className="flex items-center gap-3">
             <div className={`px-3 py-1 bg-${regime.color}-500/10 border border-${regime.color}-500/20 text-${regime.color}-400 text-sm font-bold uppercase tracking-widest rounded-lg`}>
               {regime.label}
             </div>
             <div className={`w-2 h-2 rounded-full bg-${regime.color}-500 animate-pulse`}></div>
           </div>
-          <p className="text-[10px] text-white/30 mt-2">Policy Environment Context</p>
+          <p className="text-[10px] text-white/55 mt-2">Policy Environment Context</p>
         </div>
+      </div>
+
+      <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-4">
+        <HistoryRangeTabs
+          value={range}
+          onChange={setRange}
+          coverageLabel={historyCoverage}
+          showMixedCadenceNote={hasMixedCadenceHistory(processedHistory)}
+        />
       </div>
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6">
-          <h3 className="text-sm font-medium text-white mb-6 flex items-center gap-2">
-            <Thermometer className="w-4 h-4 text-amber-400" />
-            10Y Breakeven Inflation Rate (Since 1990)
-          </h3>
+          <div className="flex items-center justify-between gap-3 mb-6">
+            <h3 className="text-sm font-medium text-white flex items-center gap-2">
+              <Thermometer className="w-4 h-4 text-amber-400" />
+              10Y Breakeven Inflation Rate
+            </h3>
+            <span className="text-[10px] text-white/60 uppercase tracking-wider">{historyCoverage}</span>
+          </div>
           <div className="h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={processedHistory}>
+              <AreaChart data={filteredHistory}>
                 <defs>
                   <linearGradient id="colorBreak" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3} />
                     <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
                 <XAxis
                   dataKey="date"
-                  stroke="#888"
-                  fontSize={10}
-                  tick={{ fill: '#888' }}
+                  stroke={CHART_AXIS_COLOR}
+                  tick={CHART_AXIS_TICK}
                   tickLine={false}
                   axisLine={false}
-                  interval={Math.floor(processedHistory.length / 10)}
+                  interval={Math.floor(filteredHistory.length / 10)}
+                  tickFormatter={tickFormatter}
                 />
                 <YAxis
-                  stroke="#888"
-                  fontSize={10}
-                  tick={{ fill: '#888' }}
+                  stroke={CHART_AXIS_COLOR}
+                  tick={CHART_AXIS_TICK}
                   tickLine={false}
                   axisLine={false}
                   tickFormatter={(v) => `${v}%`}
@@ -177,27 +202,29 @@ export function InflationTracker({ fredData, rawHistoryData, loading }: Inflatio
         </div>
 
         <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6">
-          <h3 className="text-sm font-medium text-white mb-6 flex items-center gap-2">
-            <Flame className="w-4 h-4 text-rose-400" />
-            Sticky Price CPI Growth (Since 1990)
-          </h3>
+          <div className="flex items-center justify-between gap-3 mb-6">
+            <h3 className="text-sm font-medium text-white flex items-center gap-2">
+              <Flame className="w-4 h-4 text-rose-400" />
+              Sticky Price CPI Growth
+            </h3>
+            <span className="text-[10px] text-white/60 uppercase tracking-wider">{historyCoverage}</span>
+          </div>
           <div className="h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={processedHistory}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" vertical={false} />
+              <LineChart data={filteredHistory}>
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
                 <XAxis
                   dataKey="date"
-                  stroke="#888"
-                  fontSize={10}
-                  tick={{ fill: '#888' }}
+                  stroke={CHART_AXIS_COLOR}
+                  tick={CHART_AXIS_TICK}
                   tickLine={false}
                   axisLine={false}
-                  interval={Math.floor(processedHistory.length / 10)}
+                  interval={Math.floor(filteredHistory.length / 10)}
+                  tickFormatter={tickFormatter}
                 />
                 <YAxis
-                  stroke="#888"
-                  fontSize={10}
-                  tick={{ fill: '#888' }}
+                  stroke={CHART_AXIS_COLOR}
+                  tick={CHART_AXIS_TICK}
                   tickLine={false}
                   axisLine={false}
                   tickFormatter={(v) => `${v}%`}

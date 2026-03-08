@@ -34,7 +34,7 @@ const FRED_SERIES_IDS = [
   'ICSA', 'RSAFS', 'HOUST', 'CPIAUCSL', 'STLENI',
   // Inflation Tracker series
   'T10YIE',            // 10-Year Breakeven Inflation Rate (daily)
-  'STICKCPID160SFRBATL', // Atlanta Fed Sticky Price CPI (monthly)
+  // STICKCPID160SFRBATL removed — invalid ID; use CORESTICKM159SFRBATL instead
   // Market Sentiment series
   'UMCSENT',          // U. Michigan Consumer Sentiment (monthly)
   'USEPUINDXD',       // Economic Policy Uncertainty (daily, news-based NLP)
@@ -52,7 +52,7 @@ const FRED_SERIES_IDS = [
   'DGS30',            // 30-Year Treasury (daily)
   // --- Credit Cycle Model ---
   'DRTSCILM',         // C&I Lending Standards / SLOOS (quarterly, forward-fill)
-  'BAA10YM',          // Baa Corporate Spread vs 10Y — IG credit proxy
+  'BAMLC0A0CM',       // ICE BofA IG OAS — proper investment-grade option-adjusted spread
   'BUSLOANS',         // Business Loans (weekly)
   'TOTALSL',          // Total Consumer Credit (monthly)
   // --- Fed Policy Tracker ---
@@ -168,6 +168,68 @@ function lastYearEnd(): string {
 /** Returns the last month of the previous year as YYYY-MM */
 function lastYearLastMonth(): string {
   return `${new Date().getFullYear() - 1}-12`;
+}
+
+type StoredDataRow = { key: string; data: Record<string, any> };
+
+function dedupeDateSeries<T extends { date: string }>(points: T[]): T[] {
+  const deduped = new Map<string, T>();
+  for (const point of points) {
+    if (point.date) deduped.set(point.date, point);
+  }
+  return Array.from(deduped.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function mergeStoredHistory<T extends { date: string }>(
+  monthlyData: StoredDataRow[],
+  dailyData: StoredDataRow[],
+  monthlyMapper: (row: StoredDataRow) => T | null,
+  dailyMapper: (row: StoredDataRow) => T | null,
+): T[] {
+  const merged: T[] = [];
+  for (const row of monthlyData) {
+    const point = monthlyMapper(row);
+    if (point) merged.push(point);
+  }
+  for (const row of dailyData) {
+    const point = dailyMapper(row);
+    if (point) merged.push(point);
+  }
+  return dedupeDateSeries(merged);
+}
+
+function latestNonNullPoint(points: { date: string; value: number | null }[]): { date: string; value: number } | null {
+  for (let i = points.length - 1; i >= 0; i--) {
+    const point = points[i];
+    if (point.value !== null && point.value !== undefined && !Number.isNaN(point.value)) {
+      return { date: point.date, value: point.value };
+    }
+  }
+  return null;
+}
+
+function getValueOnOrBefore(points: { date: string; value: number | null }[], targetDate: string): number | null {
+  for (let i = points.length - 1; i >= 0; i--) {
+    const point = points[i];
+    if (point.date <= targetDate && point.value !== null && point.value !== undefined && !Number.isNaN(point.value)) {
+      return point.value;
+    }
+  }
+  return null;
+}
+
+function getMonthsAgoDate(months: number, fromDate: string): string {
+  const date = new Date(fromDate);
+  date.setMonth(date.getMonth() - months);
+  return date.toISOString().split('T')[0];
+}
+
+function computeReturnFromSeries(points: { date: string; value: number | null }[], months: number): number | null {
+  const latest = latestNonNullPoint(points);
+  if (!latest || latest.value === 0) return null;
+  const agoValue = getValueOnOrBefore(points, getMonthsAgoDate(months, latest.date));
+  if (agoValue === null || agoValue === 0) return null;
+  return Math.round(((latest.value / agoValue) - 1) * 1000) / 10;
 }
 
 /**
@@ -1439,21 +1501,48 @@ app.get('/api/models/recession-probability', (req, res) => {
     const latestProbit = spreadPoints.length > 0 ? spreadPoints[spreadPoints.length - 1].probit : 50;
     const latestSpread = lastSpread ?? 0;
 
+    // ── Initial Claims Signal (ICSA) ─────────────────────────────────────────
+    // ICSA is weekly (in daily table). Extract values sorted chronologically.
+    const icsaPoints: number[] = [];
+    for (const { data } of dailyData) {
+      const v = data['ICSA'];
+      if (v !== null && v !== undefined && v > 0) icsaPoints.push(v);
+    }
+    // 3-month (12-week) moving average using last 12 observations
+    let icsa3mMA: number | null = null;
+    if (icsaPoints.length >= 12) {
+      const window12 = icsaPoints.slice(-12);
+      icsa3mMA = window12.reduce((s, v) => s + v, 0) / 12;
+    }
+    // 52-week low (52 weekly observations)
+    let icsa52wLow: number | null = null;
+    if (icsaPoints.length >= 52) {
+      icsa52wLow = Math.min(...icsaPoints.slice(-52));
+    } else if (icsaPoints.length > 0) {
+      icsa52wLow = Math.min(...icsaPoints);
+    }
+    // Signal: how far above the 52W low is the 3M MA? 15% above → full score
+    let icsaSignal = 0;
+    let icsaScore = 0;
+    if (icsa3mMA !== null && icsa52wLow !== null && icsa52wLow > 0) {
+      icsaSignal = Math.max(0, (icsa3mMA - icsa52wLow) / icsa52wLow);
+      icsaScore = Math.min(100, (icsaSignal / 0.15) * 100);
+    }
+
     // ── Composite probability ─────────────────────────────────────────────────
-    // Scale Sahm to 0-100: 0.50 = 100%, linear
+    // Weights: Sahm 35% · Probit 45% · Claims 20%
     const sahmSignal = Math.min(100, Math.max(0, (latestSahm / 0.50) * 100));
-    const composite = Math.round(0.4 * sahmSignal + 0.6 * latestProbit);
+    const composite = Math.round(0.35 * sahmSignal + 0.45 * latestProbit + 0.20 * icsaScore);
 
     // ── Build combined monthly history for chart ──────────────────────────────
-    // Merge Sahm and probit by month key
     const probitByMonth: Record<string, number> = {};
     for (const pt of spreadPoints) {
       const mk = pt.date.substring(0, 7);
       probitByMonth[mk] = pt.probit;
     }
-    const history = sahmHistory.slice(-60).map(pt => ({
+    const history = sahmHistory.map(pt => ({
       date: pt.month + '-01',
-      probability: Math.round(0.4 * Math.min(100, (pt.sahm / 0.50) * 100) + 0.6 * (probitByMonth[pt.month] ?? 0)),
+      probability: Math.round(0.35 * Math.min(100, (pt.sahm / 0.50) * 100) + 0.45 * (probitByMonth[pt.month] ?? 0) + 0.20 * icsaScore),
       sahm: pt.sahm,
     }));
 
@@ -1464,10 +1553,10 @@ app.get('/api/models/recession-probability', (req, res) => {
       : 'Stable';
 
     const analysis = composite >= 50
-      ? `Composite recession probability is ${composite}%. The Sahm Rule indicator stands at ${latestSahm.toFixed(2)} (threshold: 0.50) and the 10Y-3M spread probit estimates a ${latestProbit.toFixed(1)}% probability of recession within 12 months. A defensive asset allocation posture is recommended.`
+      ? `Composite recession probability is ${composite}%. Sahm Rule: ${latestSahm.toFixed(2)} (threshold 0.50). Yield curve probit: ${latestProbit.toFixed(1)}%. Claims signal: ${Math.round(icsaScore)}% (3M MA at ${(icsaSignal * 100).toFixed(1)}% above 52W low). Defensive posture recommended.`
       : composite >= 25
-        ? `Composite recession probability is ${composite}% — moderate but below the critical 50% threshold. The Sahm Rule indicator is ${latestSahm.toFixed(2)} (below the 0.50 trigger). Monitor the yield curve spread (currently ${latestSpread.toFixed(2)}%) for further deterioration.`
-        : `Recession risk is Low (${composite}%). The Sahm Rule indicator (${latestSahm.toFixed(2)}) is well below the 0.50 recession threshold, and the 10Y-3M spread probit indicates only ${latestProbit.toFixed(1)}% 12-month recession probability.`;
+        ? `Composite recession probability is ${composite}% — moderate but below the 50% threshold. Sahm Rule: ${latestSahm.toFixed(2)}. Yield curve probit: ${latestProbit.toFixed(1)}%. Claims signal: ${Math.round(icsaScore)}%. Monitor for further deterioration.`
+        : `Recession risk is Low (${composite}%). Sahm Rule: ${latestSahm.toFixed(2)} (well below 0.50). Probit: ${latestProbit.toFixed(1)}%. Claims signal: ${Math.round(icsaScore)}%.`;
 
     res.json({
       composite,
@@ -1475,6 +1564,12 @@ app.get('/api/models/recession-probability', (req, res) => {
       trend,
       sahm: { current: latestSahm, triggered: sahmTriggered, threshold: 0.50 },
       probit: { current: latestProbit, spread: Math.round(latestSpread * 100) / 100 },
+      claims: {
+        icsa3mMA: icsa3mMA !== null ? Math.round(icsa3mMA) : null,
+        icsa52wLow: icsa52wLow !== null ? Math.round(icsa52wLow) : null,
+        icsaSignalPct: Math.round(icsaSignal * 100 * 10) / 10,
+        icsaScore: Math.round(icsaScore),
+      },
       history,
       analysis,
     });
@@ -1529,9 +1624,6 @@ app.get('/api/models/yield-curve', (req, res) => {
         spreadHistory.push({ date, spread: Math.round(v * 100) / 100 });
       }
     }
-    // Keep last 60 months
-    const recentSpread = spreadHistory.slice(-60);
-
     // Current spreads
     const spread10y2y = latestMap['T10Y2Y'] ?? (latestMap['DGS10'] !== undefined && latestMap['DGS2'] !== undefined ? latestMap['DGS10'] - latestMap['DGS2'] : null);
     const spread10y3m = latestMap['T10Y3M'] ?? null;
@@ -1570,13 +1662,44 @@ app.get('/api/models/yield-curve', (req, res) => {
       else break;
     }
 
+    // 5Y5Y forward rate: market's expectation for 10Y rate in 5 years
+    // f(5,10) = (10 * DGS10 - 5 * DGS5) / 5
+    const dgs5 = latestMap['DGS5'] ?? null;
+    const dgs10 = latestMap['DGS10'] ?? null;
+    const dgs2 = latestMap['DGS2'] ?? null;
+    const forwardRate5y5y = dgs5 !== null && dgs10 !== null
+      ? Math.round(((10 * dgs10 - 5 * dgs5) / 5) * 100) / 100
+      : null;
+
+    // Term premium proxy: 10Y-2Y spread
+    const termPremiumProxy = dgs10 !== null && dgs2 !== null
+      ? Math.round((dgs10 - dgs2) * 100) / 100
+      : null;
+
+    // Term premium percentile vs 5-year history
+    const termPremArr: number[] = [];
+    for (const { data } of spreadMonthly) {
+      const d10 = data['DGS10'];
+      const d2 = data['DGS2'];
+      if (d10 !== null && d10 !== undefined && d2 !== null && d2 !== undefined) {
+        termPremArr.push(d10 - d2);
+      }
+    }
+    const termPrem60 = termPremArr.slice(-60);
+    const termPremiumPercentile = termPremiumProxy !== null && termPrem60.length > 0
+      ? Math.round((termPrem60.filter(v => v <= termPremiumProxy).length / termPrem60.length) * 100)
+      : null;
+
     res.json({
       currentCurve,
       spread10y2y: spread10y2y !== null ? Math.round(spread10y2y * 100) / 100 : null,
       spread10y3m: spread10y3m !== null ? Math.round(spread10y3m * 100) / 100 : null,
       curveDynamic,
       inversionDays,
-      history: recentSpread,
+      forwardRate5y5y,
+      termPremiumProxy,
+      termPremiumPercentile,
+      history: spreadHistory,
     });
   } catch (error) {
     console.error('[yield-curve] Error:', error);
@@ -1594,75 +1717,133 @@ app.get('/api/models/credit-cycle', (req, res) => {
   try {
     const monthlyData = (db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key ASC').all() as any[])
       .map(r => ({ key: r.month_key, data: JSON.parse(r.data) }));
-    const dailyData = (db.prepare('SELECT date_key, data FROM fred_daily ORDER BY date_key ASC').all() as any[])
-      .map(r => ({ key: r.date_key, data: JSON.parse(r.data) }));
     const latestRows = (db.prepare('SELECT id, value FROM fred_latest').all() as any[]);
     const latestMap: Record<string, number> = {};
     for (const r of latestRows) if (r.value !== null) latestMap[r.id] = r.value;
 
     // Current readings
     const hySpread = latestMap['BAMLH0A0HYM2'] ?? null;
-    const igSpread = latestMap['BAA10YM'] ?? null;
+    const igOAS = latestMap['BAMLC0A0CM'] ?? null;
     const lendingStandards = latestMap['DRTSCILM'] ?? null; // net % tightening
 
-    // Business loans YoY growth
-    const busloansHistory: number[] = [];
-    for (const { data } of monthlyData) {
-      const v = data['BUSLOANS'];
-      if (v !== null && v !== undefined) busloansHistory.push(v);
-    }
-    let creditGrowthYoY: number | null = null;
-    if (busloansHistory.length >= 13) {
-      const latest = busloansHistory[busloansHistory.length - 1];
-      const yearAgo = busloansHistory[busloansHistory.length - 13];
-      creditGrowthYoY = Math.round(((latest - yearAgo) / yearAgo) * 100 * 10) / 10;
-    }
-
-    // Build 60-month spread history (HY + IG overlaid, DRTSCILM forward-filled)
+    // Build indexed monthly series with forward-fill for quarterly DRTSCILM
     let lastDRTSCILM: number | null = null;
+    const busloansArr: number[] = [];
+    const totalslArr: number[] = [];
+    const hyArr: number[] = [];
+    const sloosArr: number[] = [];
     const history: { date: string; hy_spread: number | null; ig_spread: number | null; lending_standards: number | null }[] = [];
+
     for (const { key, data } of monthlyData) {
       const drtsc = data['DRTSCILM'];
       if (drtsc !== null && drtsc !== undefined) lastDRTSCILM = drtsc;
+      const bl = data['BUSLOANS'];
+      const tl = data['TOTALSL'];
+      const hy = data['BAMLH0A0HYM2'];
+      if (bl !== null && bl !== undefined) busloansArr.push(bl);
+      if (tl !== null && tl !== undefined) totalslArr.push(tl);
+      if (hy !== null && hy !== undefined) hyArr.push(hy);
+      if (lastDRTSCILM !== null) sloosArr.push(lastDRTSCILM);
       history.push({
         date: key + '-01',
-        hy_spread: data['BAMLH0A0HYM2'] ?? null,
-        ig_spread: data['BAA10YM'] ?? null,
+        hy_spread: hy ?? null,
+        ig_spread: data['BAMLC0A0CM'] ?? null,
         lending_standards: lastDRTSCILM,
       });
     }
-    const recentHistory = history.slice(-60);
+    // Business loans YoY growth
+    let creditGrowthYoY: number | null = null;
+    if (busloansArr.length >= 13) {
+      const latest = busloansArr[busloansArr.length - 1];
+      const yearAgo = busloansArr[busloansArr.length - 13];
+      creditGrowthYoY = Math.round(((latest - yearAgo) / yearAgo) * 100 * 10) / 10;
+    }
 
-    // Cycle phase classification
-    let cyclePhase = 'Expansion';
-    if (hySpread !== null && lendingStandards !== null) {
-      if (hySpread > 500) {
-        cyclePhase = 'Stress / Crisis';
-      } else if (hySpread > 400 || lendingStandards > 20) {
-        cyclePhase = 'Late Cycle / Contraction';
-      } else if (hySpread < 300 && lendingStandards < 0) {
-        cyclePhase = 'Expansion';
-      } else if (hySpread < 400 && (creditGrowthYoY ?? 0) < 0) {
-        cyclePhase = 'Recovery';
-      } else {
-        cyclePhase = 'Mid Cycle';
+    // Credit impulse: second derivative of credit growth (leads GDP 6-12 months)
+    // = monthly MoM growth rate change (acceleration of credit)
+    let creditImpulse: number | null = null;
+    let consumerCreditImpulse: number | null = null;
+    if (busloansArr.length >= 3) {
+      const n = busloansArr.length;
+      const mom1 = (busloansArr[n - 1] - busloansArr[n - 2]) / busloansArr[n - 2];
+      const mom2 = (busloansArr[n - 2] - busloansArr[n - 3]) / busloansArr[n - 3];
+      creditImpulse = Math.round((mom1 - mom2) * 12 * 100 * 100) / 100; // annualised %
+    }
+    if (totalslArr.length >= 3) {
+      const n = totalslArr.length;
+      const mom1 = (totalslArr[n - 1] - totalslArr[n - 2]) / totalslArr[n - 2];
+      const mom2 = (totalslArr[n - 2] - totalslArr[n - 3]) / totalslArr[n - 3];
+      consumerCreditImpulse = Math.round((mom1 - mom2) * 12 * 100 * 100) / 100;
+    }
+
+    // Build full impulse history
+    const impulseHistory: { date: string; creditImpulse: number | null; consumerImpulse: number | null }[] = [];
+    const blWindow: number[] = [];
+    const tlWindow: number[] = [];
+    for (const { key, data } of monthlyData) {
+      const bl = data['BUSLOANS'];
+      const tl = data['TOTALSL'];
+      if (bl !== null && bl !== undefined) blWindow.push(bl);
+      if (tl !== null && tl !== undefined) tlWindow.push(tl);
+      let ciPoint: number | null = null;
+      let ccPoint: number | null = null;
+      if (blWindow.length >= 3) {
+        const n = blWindow.length;
+        const m1 = (blWindow[n-1] - blWindow[n-2]) / blWindow[n-2];
+        const m2 = (blWindow[n-2] - blWindow[n-3]) / blWindow[n-3];
+        ciPoint = Math.round((m1 - m2) * 12 * 100 * 100) / 100;
+      }
+      if (tlWindow.length >= 3) {
+        const n = tlWindow.length;
+        const m1 = (tlWindow[n-1] - tlWindow[n-2]) / tlWindow[n-2];
+        const m2 = (tlWindow[n-2] - tlWindow[n-3]) / tlWindow[n-3];
+        ccPoint = Math.round((m1 - m2) * 12 * 100 * 100) / 100;
+      }
+      impulseHistory.push({ date: key + '-01', creditImpulse: ciPoint, consumerImpulse: ccPoint });
+    }
+
+    // Percentile-based phase classification (5-year rolling percentile)
+    const hyWindow60 = hyArr.slice(-60).filter(v => v > 0);
+    const sloosWindow60 = sloosArr.slice(-60);
+    const hyPercentile = hySpread !== null && hyWindow60.length > 0
+      ? Math.round((hyWindow60.filter(v => v <= hySpread).length / hyWindow60.length) * 100)
+      : null;
+    const sloosPercentile = lendingStandards !== null && sloosWindow60.length > 0
+      ? Math.round((sloosWindow60.filter(v => v <= lendingStandards).length / sloosWindow60.length) * 100)
+      : null;
+
+    let cyclePhase = 'Mid Cycle';
+    if (hyPercentile !== null && sloosPercentile !== null) {
+      if (hyPercentile >= 80 || sloosPercentile >= 80) {
+        cyclePhase = 'Stress / Late Cycle';
+      } else if (hyPercentile >= 60 || sloosPercentile >= 60) {
+        cyclePhase = 'Tightening';
+      } else if (hyPercentile <= 25 && (creditImpulse ?? 0) > 0) {
+        cyclePhase = 'Early Expansion';
+      } else if ((creditImpulse ?? 0) < 0 && hyPercentile > 40) {
+        cyclePhase = 'Turning';
       }
     }
 
     // Spread change vs prior month
-    const prevHY = recentHistory.length >= 2 ? recentHistory[recentHistory.length - 2].hy_spread : null;
+    const prevHY = history.length >= 2 ? history[history.length - 2].hy_spread : null;
     const spreadChangePct = hySpread !== null && prevHY !== null && prevHY > 0
       ? Math.round(((hySpread - prevHY) / prevHY) * 100 * 10) / 10
       : null;
 
     res.json({
       hySpread: hySpread !== null ? Math.round(hySpread * 100) / 100 : null,
-      igSpread: igSpread !== null ? Math.round(igSpread * 100) / 100 : null,
+      igOAS: igOAS !== null ? Math.round(igOAS * 100) / 100 : null,
       lendingStandards: lendingStandards !== null ? Math.round(lendingStandards * 10) / 10 : null,
       creditGrowthYoY,
+      creditImpulse,
+      consumerCreditImpulse,
+      hyPercentile,
+      sloosPercentile,
       cyclePhase,
       spreadChangePct,
-      history: recentHistory,
+      history,
+      impulseHistory,
     });
   } catch (error) {
     console.error('[credit-cycle] Error:', error);
@@ -1829,6 +2010,51 @@ app.get('/api/models/macro-regime', (req, res) => {
     const latest = regimeHistory.length > 0 ? regimeHistory[regimeHistory.length - 1] : null;
     const currentRegime = latest?.regime ?? 3;
 
+    // Growth impulse: 3-month change in CFNAI
+    let growthImpulse: number | null = null;
+    if (regimeHistory.length >= 4) {
+      const now = regimeHistory[regimeHistory.length - 1].growthSignal;
+      const threeMonthsAgo = regimeHistory[regimeHistory.length - 4].growthSignal;
+      growthImpulse = Math.round((now - threeMonthsAgo) * 100) / 100;
+    }
+
+    // Inflation impulse: 3-month change in CPI YoY
+    let inflationImpulse: number | null = null;
+    if (regimeHistory.length >= 4) {
+      const now = regimeHistory[regimeHistory.length - 1].inflationYoY;
+      const threeMonthsAgo = regimeHistory[regimeHistory.length - 4].inflationYoY;
+      inflationImpulse = Math.round((now - threeMonthsAgo) * 10) / 10;
+    }
+
+    // Regime momentum: how consistent is the current regime over the last 6 months?
+    const last6 = regimeHistory.slice(-6).map(r => r.regime);
+    const regimeConsistency = last6.filter(r => r === currentRegime).length;
+    let regimeMomentum: 'Strengthening' | 'Established' | 'Shifting';
+    if (regimeConsistency >= 4) {
+      regimeMomentum = 'Established';
+    } else if (
+      (currentRegime === 0 && (growthImpulse ?? 0) > 0 && (inflationImpulse ?? 0) < 0) ||
+      (currentRegime === 1 && (growthImpulse ?? 0) > 0 && (inflationImpulse ?? 0) > 0) ||
+      (currentRegime === 2 && (growthImpulse ?? 0) < 0 && (inflationImpulse ?? 0) > 0) ||
+      (currentRegime === 3 && (growthImpulse ?? 0) < 0 && (inflationImpulse ?? 0) < 0)
+    ) {
+      regimeMomentum = 'Strengthening';
+    } else {
+      regimeMomentum = 'Shifting';
+    }
+
+    // 2D scatter coordinates (clamp to [-2, +2] for display)
+    const growthCoord = latest ? Math.max(-2, Math.min(2, latest.growthSignal)) : null;
+    const inflationCoord = latest ? Math.max(-2, Math.min(2, latest.inflationYoY - 2.5)) : null;
+
+    // Build 12-month scatter trail (last 12 points for regime trajectory)
+    const scatterTrail = regimeHistory.slice(-12).map(r => ({
+      date: r.date,
+      growthCoord: Math.max(-2, Math.min(2, r.growthSignal)),
+      inflationCoord: Math.max(-2, Math.min(2, r.inflationYoY - 2.5)),
+      regime: r.regime,
+    }));
+
     res.json({
       currentRegime,
       regimeName: REGIME_NAMES[currentRegime].name,
@@ -1837,7 +2063,14 @@ app.get('/api/models/macro-regime', (req, res) => {
       growthSignal: latest?.growthSignal ?? null,
       inflationYoY: latest?.inflationYoY ?? null,
       confidence: latest?.confidence ?? null,
-      history: regimeHistory.slice(-120), // 10 years
+      growthImpulse,
+      inflationImpulse,
+      regimeMomentum,
+      regimeConsistency,
+      growthCoord,
+      inflationCoord,
+      scatterTrail,
+      history: regimeHistory,
       regimeConfig: REGIME_NAMES,
     });
   } catch (error) {
@@ -1884,7 +2117,7 @@ app.get('/api/models/fed-policy', (req, res) => {
         inflationYoY = ((cpiNow - cpiYear) / cpiYear) * 100;
         const pi = inflationYoY;
         const outputGap = (cfnai !== null && cfnai !== undefined) ? cfnai * 2.0 : 0;
-        // Taylor Rule: r* = 2.5 + π + 0.5*(π - 2.0) + 0.5*outputGap
+        // Taylor Rule: r* = neutral + π + 0.5*(π - 2.0) + 0.5*outputGap
         taylorRate = 2.5 + pi + 0.5 * (pi - 2.0) + 0.5 * outputGap;
         taylorRate = Math.round(taylorRate * 100) / 100;
       }
@@ -1902,14 +2135,55 @@ app.get('/api/models/fed-policy', (req, res) => {
       });
     }
 
-    const recent = history.slice(-120); // 10 years
-    const latest = recent.length > 0 ? recent[recent.length - 1] : null;
+    const latest = history.length > 0 ? history[history.length - 1] : null;
 
     // Current live readings (use DFEDTARU/DFEDTARL for current target bounds)
     const upperBound = latestMap['DFEDTARU'] ?? null;
     const lowerBound = latestMap['DFEDTARL'] ?? null;
 
-    // Policy stance: based on gap (Fed vs Taylor Rule)
+    // Neutral rate sensitivity: run Taylor Rule at 3 r* assumptions
+    const currentFedfunds = latest?.fedFunds ?? latestMap['FEDFUNDS'] ?? null;
+    const currentPi = latest?.inflationYoY ?? null;
+    const currentCFNAI = (monthlyData[monthlyData.length - 1].data['CFNAI'] as number | undefined) ?? null;
+    const currentOutputGap = currentCFNAI !== null ? currentCFNAI * 2.0 : 0;
+
+    let taylorLow: number | null = null;
+    let taylorMid: number | null = null;
+    let taylorHigh: number | null = null;
+    if (currentPi !== null) {
+      taylorLow  = Math.round((2.0 + currentPi + 0.5 * (currentPi - 2.0) + 0.5 * currentOutputGap) * 100) / 100;
+      taylorMid  = Math.round((2.5 + currentPi + 0.5 * (currentPi - 2.0) + 0.5 * currentOutputGap) * 100) / 100;
+      taylorHigh = Math.round((3.5 + currentPi + 0.5 * (currentPi - 2.0) + 0.5 * currentOutputGap) * 100) / 100;
+    }
+
+    // Quick Sahm Rule for cut probability
+    const unratePoints2: number[] = [];
+    for (const { data } of monthlyData) {
+      const v = data['UNRATE'];
+      if (v !== null && v !== undefined) unratePoints2.push(v);
+    }
+    let latestSahm2 = 0;
+    if (unratePoints2.length >= 14) {
+      const n = unratePoints2.length;
+      const u3ma = (unratePoints2[n-1] + unratePoints2[n-2] + unratePoints2[n-3]) / 3;
+      let minU3ma = u3ma;
+      for (let k = 2; k < 14 && k < n; k++) {
+        const m = (unratePoints2[n-k-1] + unratePoints2[n-k-2] + unratePoints2[n-k-3]) / 3;
+        if (m < minU3ma) minU3ma = m;
+      }
+      latestSahm2 = Math.max(0, u3ma - minU3ma);
+    }
+
+    // Cut probability heuristic (6-month horizon)
+    const midGap = (currentFedfunds !== null && taylorMid !== null) ? currentFedfunds - taylorMid : null;
+    let cutProbability: number;
+    if (latestSahm2 >= 0.5) cutProbability = 75;
+    else if (latestSahm2 >= 0.3 && midGap !== null && midGap <= -1) cutProbability = 50;
+    else if (midGap !== null && midGap <= -2) cutProbability = 40;
+    else if (latestSahm2 < 0.1 && midGap !== null && midGap >= 1) cutProbability = 15;
+    else cutProbability = 25;
+
+    // Policy stance: based on mid gap (Fed vs Taylor Rule at r*=2.5)
     const gap = latest?.gap ?? null;
     let policyStance = 'Neutral';
     if (gap !== null) {
@@ -1923,14 +2197,18 @@ app.get('/api/models/fed-policy', (req, res) => {
       current: {
         fedFunds: latest?.fedFunds ?? null,
         taylorRate: latest?.taylorRate ?? null,
+        taylorLow,
+        taylorMid,
+        taylorHigh,
         gap,
         realRate: latest?.realRate ?? null,
         inflationYoY: latest?.inflationYoY ?? null,
         upperBound,
         lowerBound,
         policyStance,
+        cutProbability,
       },
-      history: recent,
+      history,
     });
   } catch (error) {
     console.error('[fed-policy] Error:', error);
@@ -2045,21 +2323,45 @@ app.get('/api/models/bond-scorecard', (req, res) => {
     const dailyData = (db.prepare('SELECT date_key, data FROM fred_daily ORDER BY date_key ASC').all() as any[])
       .map(r => ({ key: r.date_key, data: JSON.parse(r.data) }));
 
-    // ── Term Premium (DGS10 - DGS3M)
+    // Build 60-month monthly history for percentile calculations
+    const monthlyData = (db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key ASC').all() as any[])
+      .map(r => ({ key: r.month_key, data: JSON.parse(r.data) }));
+    const last60monthly = monthlyData.slice(-60);
+
+    // Build 5-year rolling arrays for percentile scoring
+    const realYieldArr: number[] = [];
+    const breakevenArr: number[] = [];
+    const termPremArr2: number[] = [];
+    for (const { data } of last60monthly) {
+      const ry = data['DFII10'];
+      const be = data['T10YIE'];
+      const d10 = data['DGS10'];
+      const d3m = data['DGS3M'];
+      if (ry !== null && ry !== undefined) realYieldArr.push(ry);
+      if (be !== null && be !== undefined) breakevenArr.push(be);
+      if (d10 !== null && d10 !== undefined && d3m !== null && d3m !== undefined) termPremArr2.push(d10 - d3m);
+    }
+
+    // ── Term Premium (DGS10 - DGS3M) — percentile-based
     const termPremium = (latestMap['DGS10'] != null && latestMap['DGS3M'] != null)
       ? Math.round((latestMap['DGS10'] - latestMap['DGS3M']) * 100) / 100 : null;
-    const termScore: -1 | 0 | 1 = termPremium === null ? 0 : termPremium > 1.5 ? 1 : termPremium < 0 ? -1 : 0;
+    const termPremPct = termPremium !== null && termPremArr2.length > 0
+      ? Math.round((termPremArr2.filter(v => v <= termPremium).length / termPremArr2.length) * 100) : null;
+    const termScore: -1 | 0 | 1 = termPremPct === null ? 0 : termPremPct >= 65 ? 1 : termPremPct <= 35 ? -1 : 0;
 
-    // ── Real Yield (DFII10 — 10Y TIPS)
+    // ── Real Yield (DFII10 — 10Y TIPS) — percentile-based
     const realYield = latestMap['DFII10'] ?? null;
-    // Forward-looking: high real yield = attractive entry point for bonds
-    const realScore: -1 | 0 | 1 = realYield === null ? 0 : realYield > 2.0 ? 1 : realYield < 0 ? -1 : 0;
+    const realYieldPct = realYield !== null && realYieldArr.length > 0
+      ? Math.round((realYieldArr.filter(v => v <= realYield).length / realYieldArr.length) * 100) : null;
+    const realScore: -1 | 0 | 1 = realYieldPct === null ? 0 : realYieldPct >= 70 ? 1 : realYieldPct <= 30 ? -1 : 0;
 
-    // ── Breakeven Inflation (T10YIE)
+    // ── Breakeven Inflation (T10YIE) — percentile-based (lower = more bond-friendly)
     const breakeven = latestMap['T10YIE'] ?? null;
-    const breakevenScore: -1 | 0 | 1 = breakeven === null ? 0 : breakeven < 1.5 ? 1 : breakeven > 2.5 ? -1 : 0;
+    const breakevenPct = breakeven !== null && breakevenArr.length > 0
+      ? Math.round((breakevenArr.filter(v => v <= breakeven).length / breakevenArr.length) * 100) : null;
+    const breakevenScore: -1 | 0 | 1 = breakevenPct === null ? 0 : breakevenPct <= 30 ? 1 : breakevenPct >= 70 ? -1 : 0;
 
-    // ── Curve Dynamic (3-month delta in DGS10 vs DGS2)
+    // ── Curve Dynamic (3-month delta in DGS10 vs DGS2) — directional
     const recent90 = dailyData.slice(-90);
     let delta2: number | null = null, delta10: number | null = null;
     if (recent90.length >= 60) {
@@ -2083,7 +2385,7 @@ app.get('/api/models/bond-scorecard', (req, res) => {
       }
     }
 
-    // ── Duration Risk (is DGS10 rising over last 3M?)
+    // ── Duration Risk (is DGS10 rising over last 3M?) — directional
     const dgs10_3m_ago = recent90.length >= 60 ? recent90[0].data['DGS10'] : null;
     const dgs10_now = latestMap['DGS10'] ?? null;
     const durationRising = dgs10_3m_ago && dgs10_now ? dgs10_now > dgs10_3m_ago + 0.1 : null;
@@ -2091,9 +2393,6 @@ app.get('/api/models/bond-scorecard', (req, res) => {
 
     const totalScore = termScore + realScore + breakevenScore + curveScore + durationScore;
 
-    // Build 60-month history of DGS10 + DFII10 + T10YIE from monthly data
-    const monthlyData = (db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key ASC').all() as any[])
-      .map(r => ({ key: r.month_key, data: JSON.parse(r.data) })).slice(-60);
     const history = monthlyData.map(({ key, data }) => ({
       date: key + '-01',
       dgs10: data['DGS10'] ?? null,
@@ -2101,15 +2400,20 @@ app.get('/api/models/bond-scorecard', (req, res) => {
       breakeven: data['T10YIE'] ?? null,
     }));
 
+    const termPremDesc = termPremPct === null ? 'N/A' : termPremPct >= 65 ? `Steep at ${termPremPct}th pct — favorable carry` : termPremPct <= 35 ? `Compressed at ${termPremPct}th pct — inverted or flat` : `Moderate at ${termPremPct}th pct — transitional`;
+    const realDesc = realYieldPct === null ? 'N/A' : realYieldPct >= 70 ? `Elevated at ${realYieldPct}th pct — attractive entry for duration` : realYieldPct <= 30 ? `Depressed at ${realYieldPct}th pct — financial repression` : `Moderate at ${realYieldPct}th pct — fair value`;
+    const beDesc = breakevenPct === null ? 'N/A' : breakevenPct <= 30 ? `Low at ${breakevenPct}th pct — disinflationary tailwind` : breakevenPct >= 70 ? `Elevated at ${breakevenPct}th pct — inflation risk premium` : `Anchored at ${breakevenPct}th pct — expectations stable`;
+
     res.json({
       score: totalScore,
       components: [
-        { name: 'Term Premium (10Y-3M)', value: termPremium, score: termScore, description: termPremium === null ? 'N/A' : termPremium > 1.5 ? 'Steep — historically favorable for bond buyers' : termPremium < 0 ? 'Inverted — near-term bonds at risk' : 'Flat — transitional environment' },
-        { name: 'Real Yield (TIPS 10Y)', value: realYield, score: realScore, description: realYield === null ? 'N/A' : realYield > 2.0 ? 'Elevated — attractive entry for long-duration bonds' : realYield < 0 ? 'Negative — financial repression; bonds unattractive in real terms' : 'Moderate — fair value territory' },
-        { name: 'Breakeven Inflation', value: breakeven, score: breakevenScore, description: breakeven === null ? 'N/A' : breakeven < 1.5 ? 'Below target — deflationary signal, bonds favored' : breakeven > 2.5 ? 'Elevated — inflation premium increases rate risk' : 'Anchored — inflation expectations well-controlled' },
-        { name: 'Curve Dynamic', value: curveDynamic, score: curveScore, description: curveScore === 1 ? 'Bull trend — falling rates support bond prices' : curveScore === -1 ? 'Bear trend — rising rates pressure bond prices' : 'Stable — range-bound rate environment' },
-        { name: 'Duration Risk (DGS10 trend)', value: dgs10_now, score: durationScore, description: durationRising === null ? 'N/A' : durationRising ? '10Y yield rising — duration exposure is a headwind' : '10Y yield stable/falling — duration risk is contained' },
+        { name: 'Term Premium (10Y-3M)', value: termPremium, score: termScore, percentile: termPremPct, description: termPremDesc },
+        { name: 'Real Yield (TIPS 10Y)', value: realYield, score: realScore, percentile: realYieldPct, description: realDesc },
+        { name: 'Breakeven Inflation', value: breakeven, score: breakevenScore, percentile: breakevenPct, description: beDesc },
+        { name: 'Curve Dynamic', value: curveDynamic, score: curveScore, percentile: null, description: curveScore === 1 ? 'Bull trend — falling rates support bond prices' : curveScore === -1 ? 'Bear trend — rising rates pressure bond prices' : 'Stable — range-bound rate environment' },
+        { name: 'Duration Risk (DGS10 trend)', value: dgs10_now, score: durationScore, percentile: null, description: durationRising === null ? 'N/A' : durationRising ? '10Y yield rising — duration exposure is a headwind' : '10Y yield stable/falling — duration risk is contained' },
       ],
+      percentiles: { realYield: realYieldPct, breakeven: breakevenPct, termPremium: termPremPct },
       current: { dgs10: dgs10_now, realYield, breakeven, termPremium, curveDynamic },
       history,
     });
@@ -2176,8 +2480,8 @@ app.get('/api/models/inflation-decomposition', (req, res) => {
       else regime = 'Reflation';
     }
 
-    // Build 36-month history for chart
-    const history = monthlyData.slice(-36).map(({ key, data }) => ({
+    // Build full monthly history for chart
+    const history = monthlyData.map(({ key, data }) => ({
       date: key + '-01',
       cpi: data['CPIAUCSL'] ?? null,
       pce: data['PCEPI'] ?? null,
@@ -2221,60 +2525,70 @@ app.get('/api/models/commodities', async (req, res) => {
   try {
     const dailyData = (db.prepare('SELECT date_key, data FROM fred_daily ORDER BY date_key ASC').all() as any[])
       .map(r => ({ key: r.date_key, data: JSON.parse(r.data) }));
+    const monthlyData = (db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key ASC').all() as any[])
+      .map(r => ({ key: r.month_key, data: JSON.parse(r.data) }));
 
-    function latestVal(key: string): number | null {
-      for (let i = dailyData.length - 1; i >= 0; i--) {
-        const v = dailyData[i].data[key];
-        if (v !== null && v !== undefined) return v;
-      }
-      return null;
-    }
+    const oilSeries = mergeStoredHistory(
+      monthlyData,
+      dailyData,
+      ({ key, data }) => ({ date: key + '-01', value: data['OIL'] ?? null }),
+      ({ key, data }) => ({ date: key, value: data['OIL'] ?? null }),
+    );
+    const goldSeries = mergeStoredHistory(
+      monthlyData,
+      dailyData,
+      ({ key, data }) => ({ date: key + '-01', value: data['GOLD'] ?? null }),
+      ({ key, data }) => ({ date: key, value: data['GOLD'] ?? null }),
+    );
+    const copperSeries = mergeStoredHistory(
+      monthlyData,
+      dailyData,
+      ({ key, data }) => ({ date: key + '-01', value: data['COPPER'] ?? null }),
+      ({ key, data }) => ({ date: key, value: data['COPPER'] ?? null }),
+    );
 
-    function nReturn(key: string, months: number): number | null {
-      const days = months * 21;
-      const series: number[] = [];
-      for (const { data } of dailyData) {
-        const v = data[key];
-        if (v != null) series.push(v);
-      }
-      if (series.length < days + 1) return null;
-      const now = series[series.length - 1];
-      const ago = series[series.length - 1 - days];
-      return Math.round(((now / ago) - 1) * 1000) / 10;
-    }
+    const oilPrice = latestNonNullPoint(oilSeries)?.value ?? null;
+    const goldPrice = latestNonNullPoint(goldSeries)?.value ?? null;
+    const copperPrice = latestNonNullPoint(copperSeries)?.value ?? null;
 
-    const oilPrice = latestVal('OIL');
-    const goldPrice = latestVal('GOLD');
-    const copperPrice = latestVal('COPPER');
-
-    const copperGoldRatio = oilPrice && goldPrice && copperPrice && goldPrice > 0
+    const copperGoldRatio = goldPrice !== null && copperPrice !== null && goldPrice > 0
       ? Math.round((copperPrice / goldPrice) * 10000) / 10000 : null;
-    const goldOilRatio = goldPrice && oilPrice && oilPrice > 0
+    const goldOilRatio = goldPrice !== null && oilPrice !== null && oilPrice > 0
       ? Math.round((goldPrice / oilPrice) * 100) / 100 : null;
 
-    const copper12m = nReturn('COPPER', 12);
+    const copper12m = computeReturnFromSeries(copperSeries, 12);
     const copperSignal = copper12m === null ? 'Insufficient data'
       : copper12m > 10 ? 'Strong Growth'
         : copper12m > 0 ? 'Moderate Growth'
           : copper12m > -10 ? 'Slowing'
             : 'Contraction';
 
-    // 60-day ratio history
-    const recentDaily = dailyData.slice(-300);
-    const ratioHistory = recentDaily.map(({ key, data }) => {
-      const oil = data['OIL']; const gold = data['GOLD']; const copper = data['COPPER'];
-      return {
-        date: key,
-        copperGold: copper && gold && gold > 0 ? Math.round((copper / gold) * 10000) / 10000 : null,
-        goldOil: gold && oil && oil > 0 ? Math.round((gold / oil) * 100) / 100 : null,
-      };
-    }).filter(d => d.copperGold !== null || d.goldOil !== null);
+    const ratioHistory = mergeStoredHistory(
+      monthlyData,
+      dailyData,
+      ({ key, data }) => {
+        const oil = data['OIL']; const gold = data['GOLD']; const copper = data['COPPER'];
+        return {
+          date: key + '-01',
+          copperGold: copper && gold && gold > 0 ? Math.round((copper / gold) * 10000) / 10000 : null,
+          goldOil: gold && oil && oil > 0 ? Math.round((gold / oil) * 100) / 100 : null,
+        };
+      },
+      ({ key, data }) => {
+        const oil = data['OIL']; const gold = data['GOLD']; const copper = data['COPPER'];
+        return {
+          date: key,
+          copperGold: copper && gold && gold > 0 ? Math.round((copper / gold) * 10000) / 10000 : null,
+          goldOil: gold && oil && oil > 0 ? Math.round((gold / oil) * 100) / 100 : null,
+        };
+      },
+    ).filter(d => d.copperGold !== null || d.goldOil !== null);
 
     res.json({
       current: {
-        oil: { price: oilPrice, r1m: nReturn('OIL', 1), r3m: nReturn('OIL', 3), r12m: nReturn('OIL', 12) },
-        gold: { price: goldPrice, r1m: nReturn('GOLD', 1), r3m: nReturn('GOLD', 3), r12m: nReturn('GOLD', 12) },
-        copper: { price: copperPrice, r1m: nReturn('COPPER', 1), r3m: nReturn('COPPER', 3), r12m: nReturn('COPPER', 12) },
+        oil: { price: oilPrice, r1m: computeReturnFromSeries(oilSeries, 1), r3m: computeReturnFromSeries(oilSeries, 3), r12m: computeReturnFromSeries(oilSeries, 12) },
+        gold: { price: goldPrice, r1m: computeReturnFromSeries(goldSeries, 1), r3m: computeReturnFromSeries(goldSeries, 3), r12m: computeReturnFromSeries(goldSeries, 12) },
+        copper: { price: copperPrice, r1m: computeReturnFromSeries(copperSeries, 1), r3m: computeReturnFromSeries(copperSeries, 3), r12m: computeReturnFromSeries(copperSeries, 12) },
         copperGoldRatio, goldOilRatio, copperSignal,
       },
       ratioHistory,
@@ -2295,28 +2609,28 @@ app.get('/api/models/dollar', (req, res) => {
   try {
     const dailyData = (db.prepare('SELECT date_key, data FROM fred_daily ORDER BY date_key ASC').all() as any[])
       .map(r => ({ key: r.date_key, data: JSON.parse(r.data) }));
+    const monthlyData = (db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key ASC').all() as any[])
+      .map(r => ({ key: r.month_key, data: JSON.parse(r.data) }));
 
     // Build DTWEXBGS and DXY series (prefer DXY from Yahoo, fallback to DTWEXBGS)
-    const series: { date: string; dxy: number | null; sp500: number | null; gold: number | null }[] = [];
-    for (const { key, data } of dailyData) {
-      const dxy = data['DXY'] ?? data['DTWEXBGS'] ?? null;
-      series.push({ date: key, dxy, sp500: data['SP500'] ?? null, gold: data['GOLD'] ?? null });
-    }
+    const series = mergeStoredHistory(
+      monthlyData,
+      dailyData,
+      ({ key, data }) => ({ date: key + '-01', dxy: data['DXY'] ?? data['DTWEXBGS'] ?? null, sp500: data['SP500'] ?? null, gold: data['GOLD'] ?? null }),
+      ({ key, data }) => ({ date: key, dxy: data['DXY'] ?? data['DTWEXBGS'] ?? null, sp500: data['SP500'] ?? null, gold: data['GOLD'] ?? null }),
+    );
 
-    const dxyVals = series.map(s => s.dxy).filter((v): v is number => v !== null);
-    const latestDxy = dxyVals[dxyVals.length - 1] ?? null;
+    const dxyPoints = series.map(point => ({ date: point.date, value: point.dxy }));
+    const latestDxyPoint = latestNonNullPoint(dxyPoints);
+    const latestDxy = latestDxyPoint?.value ?? null;
 
-    // 52-week percentile rank
-    const last252 = dxyVals.slice(-252);
-    const rank52w = last252.length > 0 && latestDxy !== null
-      ? Math.round((last252.filter(v => v <= latestDxy).length / last252.length) * 100) : null;
-
-    // Returns
-    function rtn(n: number): number | null {
-      if (dxyVals.length < n + 1 || !latestDxy) return null;
-      const ago = dxyVals[dxyVals.length - 1 - n];
-      return Math.round(((latestDxy / ago) - 1) * 1000) / 10;
-    }
+    // 52-week percentile rank using all available points in the last year
+    const rankCutoff = latestDxyPoint ? getMonthsAgoDate(12, latestDxyPoint.date) : null;
+    const last12m = rankCutoff
+      ? dxyPoints.filter(point => point.date >= rankCutoff && point.value !== null).map(point => point.value as number)
+      : [];
+    const rank52w = last12m.length > 0 && latestDxy !== null
+      ? Math.round((last12m.filter(v => v <= latestDxy).length / last12m.length) * 100) : null;
 
     // DEXUSEU (USD/EUR) — latest from fred_latest
     const latestMap: Record<string, number> = {};
@@ -2326,8 +2640,14 @@ app.get('/api/models/dollar', (req, res) => {
     const usdEur = latestMap['DEXUSEU'] ?? null;
 
     // 60-day rolling Pearson correlation DXY vs SP500 and DXY vs GOLD
-    const corr60 = series.slice(-60).filter(s => s.dxy !== null && s.sp500 !== null);
-    const corrGold60 = series.slice(-60).filter(s => s.dxy !== null && s.gold !== null);
+    const dailyCorrelationSeries = dailyData.map(({ key, data }) => ({
+      date: key,
+      dxy: data['DXY'] ?? data['DTWEXBGS'] ?? null,
+      sp500: data['SP500'] ?? null,
+      gold: data['GOLD'] ?? null,
+    }));
+    const corr60 = dailyCorrelationSeries.slice(-60).filter(s => s.dxy !== null && s.sp500 !== null);
+    const corrGold60 = dailyCorrelationSeries.slice(-60).filter(s => s.dxy !== null && s.gold !== null);
 
     function pearson(xs: number[], ys: number[]): number | null {
       const n = xs.length;
@@ -2347,10 +2667,18 @@ app.get('/api/models/dollar', (req, res) => {
         : rank52w <= 25 ? 'Trending Weaker'
           : 'Neutral';
 
-    const history = series.slice(-252).map(s => ({ date: s.date, dxy: s.dxy }));
+    const history = series.map(s => ({ date: s.date, dxy: s.dxy }));
 
     res.json({
-      current: { dxy: latestDxy, rank52w, r3m: rtn(63), r6m: rtn(126), r12m: rtn(252), usdEur, regime },
+      current: {
+        dxy: latestDxy,
+        rank52w,
+        r3m: computeReturnFromSeries(dxyPoints, 3),
+        r6m: computeReturnFromSeries(dxyPoints, 6),
+        r12m: computeReturnFromSeries(dxyPoints, 12),
+        usdEur,
+        regime
+      },
       correlations: { sp500: corrSP500, gold: corrGold },
       history,
     });
@@ -2364,103 +2692,505 @@ app.get('/api/models/dollar', (req, res) => {
 
 /**
  * GET /api/models/correlations
- * Returns 5×5 Pearson correlation matrices for 60D / 6M / 1Y windows.
+ * Returns 5×5 Pearson correlation matrices for 3M / 5Y / ALL windows.
  * Assets: SP500, 10Y Treasury (price proxy), Gold, Oil, DXY.
  */
 app.get('/api/models/correlations', (req, res) => {
   try {
     const dailyData = (db.prepare('SELECT date_key, data FROM fred_daily ORDER BY date_key ASC').all() as any[])
       .map(r => ({ key: r.date_key, data: JSON.parse(r.data) }));
+    const monthlyData = (db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key ASC').all() as any[])
+      .map(r => ({ key: r.month_key, data: JSON.parse(r.data) }));
 
     const ASSETS = [
       { key: 'SP500', label: 'S&P 500' },
-      { key: 'DGS10', label: '10Y Treasury', invert: true },
+      { key: 'DGS10', label: '10Y Treasury' },
       { key: 'GOLD', label: 'Gold' },
       { key: 'OIL', label: 'Oil (WTI)' },
       { key: 'DXY', label: 'US Dollar (DXY)' },
-    ];
+    ] as const;
 
-    // Build daily returns for each asset
-    const rawSeries: Record<string, number[]> = {};
-    const rawDates: string[] = [];
-    for (const { key, data } of dailyData) {
-      let anyValue = false;
-      for (const a of ASSETS) {
-        let v = data[a.key];
-        // For DGS10: convert yield to price proxy using duration
-        if (a.invert && v != null) v = -v; // invert yield so positive = price up
-        if (v != null) {
-          if (!rawSeries[a.key]) rawSeries[a.key] = [];
-          rawSeries[a.key].push(v);
-          anyValue = true;
+    type AssetKey = typeof ASSETS[number]['key'];
+    type Observation = { date: string } & Record<AssetKey, number | null>;
+    type ReturnPoint = { date: string; value: number };
+
+    function buildObservation(date: string, data: Record<string, any>): Observation | null {
+      const point: Observation = {
+        date,
+        SP500: data['SP500'] ?? null,
+        DGS10: data['DGS10'] ?? null,
+        GOLD: data['GOLD'] ?? null,
+        OIL: data['OIL'] ?? null,
+        DXY: data['DXY'] ?? data['DTWEXBGS'] ?? null,
+      };
+
+      const hasAnyValue = ASSETS.some(asset => point[asset.key] !== null && point[asset.key] !== undefined && !Number.isNaN(point[asset.key] as number));
+      return hasAnyValue ? point : null;
+    }
+
+    const dailyObservations = dailyData
+      .map(({ key, data }) => buildObservation(key, data))
+      .filter((point): point is Observation => point !== null);
+
+    const monthlyObservations = monthlyData
+      .map(({ key, data }) => buildObservation(`${key}-01`, data))
+      .filter((point): point is Observation => point !== null);
+
+    function filterObservationsSince(observations: Observation[], months: number): Observation[] {
+      if (!observations.length) return [];
+      const cutoff = getMonthsAgoDate(months, observations[observations.length - 1].date);
+      return observations.filter(point => point.date >= cutoff);
+    }
+
+    function buildReturnSeries(observations: Observation[], assetKey: AssetKey): ReturnPoint[] {
+      const returns: ReturnPoint[] = [];
+      let prevValue: number | null = null;
+
+      for (const point of observations) {
+        const value = point[assetKey];
+        if (value === null || value === undefined || Number.isNaN(value)) continue;
+
+        if (prevValue !== null) {
+          const delta = assetKey === 'DGS10'
+            ? prevValue - value
+            : prevValue !== 0 ? (value - prevValue) / Math.abs(prevValue) : 0;
+
+          if (!Number.isNaN(delta) && Number.isFinite(delta)) {
+            returns.push({ date: point.date, value: delta });
+          }
         }
+
+        prevValue = value;
       }
-      if (anyValue) rawDates.push(key);
+
+      return returns;
     }
 
-    // Compute daily % returns
-    function toReturns(vals: number[]): number[] {
-      const r: number[] = [];
-      for (let i = 1; i < vals.length; i++) {
-        r.push(vals[i] - vals[i - 1]); // use diff for yields/inverted, % for others
-      }
-      return r;
-    }
+    function pearsonAligned(xs: ReturnPoint[], ys: ReturnPoint[]): number {
+      const ysByDate = new Map(ys.map(point => [point.date, point.value]));
+      const alignedX: number[] = [];
+      const alignedY: number[] = [];
 
-    function pearson(xs: number[], ys: number[]): number {
-      const n = Math.min(xs.length, ys.length);
+      for (const point of xs) {
+        const otherValue = ysByDate.get(point.date);
+        if (otherValue === undefined) continue;
+        alignedX.push(point.value);
+        alignedY.push(otherValue);
+      }
+
+      const n = alignedX.length;
       if (n < 5) return 0;
-      const mx = xs.slice(0, n).reduce((a, b) => a + b, 0) / n;
-      const my = ys.slice(0, n).reduce((a, b) => a + b, 0) / n;
-      const num = xs.slice(0, n).reduce((s, x, i) => s + (x - mx) * (ys[i] - my), 0);
-      const den = Math.sqrt(
-        xs.slice(0, n).reduce((s, x) => s + (x - mx) ** 2, 0) *
-        ys.slice(0, n).reduce((s, y) => s + (y - my) ** 2, 0)
+
+      const meanX = alignedX.reduce((sum, value) => sum + value, 0) / n;
+      const meanY = alignedY.reduce((sum, value) => sum + value, 0) / n;
+      const numerator = alignedX.reduce((sum, value, index) => sum + (value - meanX) * (alignedY[index] - meanY), 0);
+      const denominator = Math.sqrt(
+        alignedX.reduce((sum, value) => sum + (value - meanX) ** 2, 0) *
+        alignedY.reduce((sum, value) => sum + (value - meanY) ** 2, 0)
       );
-      return den === 0 ? 0 : Math.round((num / den) * 100) / 100;
+
+      return denominator === 0 ? 0 : Math.round((numerator / denominator) * 100) / 100;
     }
 
-    function buildMatrix(windowDays: number) {
+    function buildMatrix(observations: Observation[]) {
       const matrix: Record<string, Record<string, number>> = {};
-      const returns: Record<string, number[]> = {};
-      for (const a of ASSETS) {
-        const vals = rawSeries[a.key] ?? [];
-        const recent = vals.slice(-windowDays);
-        returns[a.key] = a.invert
-          ? recent.map((v, i, arr) => i === 0 ? 0 : arr[i] - arr[i - 1])
-          : recent.map((v, i, arr) => i === 0 ? 0 : arr[i - 1] !== 0 ? (arr[i] - arr[i - 1]) / Math.abs(arr[i - 1]) : 0);
-      }
-      for (const a of ASSETS) {
-        matrix[a.key] = {};
-        for (const b of ASSETS) {
-          const xs = returns[a.key].slice(1);
-          const ys = returns[b.key].slice(1);
-          matrix[a.key][b.key] = a.key === b.key ? 1.0 : pearson(xs, ys);
+      const returnsByAsset = Object.fromEntries(
+        ASSETS.map(asset => [asset.key, buildReturnSeries(observations, asset.key)])
+      ) as Record<AssetKey, ReturnPoint[]>;
+
+      for (const assetA of ASSETS) {
+        matrix[assetA.key] = {};
+        for (const assetB of ASSETS) {
+          matrix[assetA.key][assetB.key] = assetA.key === assetB.key
+            ? 1.0
+            : pearsonAligned(returnsByAsset[assetA.key], returnsByAsset[assetB.key]);
         }
       }
+
       return matrix;
     }
 
-    // Key regime signal: stock-bond correlation
-    const corr60 = buildMatrix(60);
-    const stockBondCorr = corr60['SP500']?.['DGS10'] ?? 0;
-    const regime = stockBondCorr < -0.2 ? 'Classic Hedge (Negative Stock-Bond Corr.)'
-      : stockBondCorr > 0.2 ? 'Inflation Regime (Positive Stock-Bond Corr.)'
+    const observations3m = filterObservationsSince(dailyObservations, 3);
+    const observations5y = filterObservationsSince(monthlyObservations, 60);
+    const observationsAll = monthlyObservations;
+
+    const matrices = {
+      '3M': buildMatrix(observations3m),
+      '5Y': buildMatrix(observations5y),
+      'ALL': buildMatrix(observationsAll),
+    };
+
+    const stockBondCorrs = {
+      '3M': matrices['3M']['SP500']?.['DGS10'] ?? 0,
+      '5Y': matrices['5Y']['SP500']?.['DGS10'] ?? 0,
+      'ALL': matrices['ALL']['SP500']?.['DGS10'] ?? 0,
+    };
+
+    const regime = stockBondCorrs['3M'] < -0.2 ? 'Classic Hedge (Negative Stock-Bond Corr.)'
+      : stockBondCorrs['3M'] > 0.2 ? 'Inflation Regime (Positive Stock-Bond Corr.)'
         : 'Transitional';
 
     res.json({
-      assets: ASSETS,
-      matrices: {
-        '60D': buildMatrix(60),
-        '6M': buildMatrix(126),
-        '1Y': buildMatrix(252),
+      assets: ASSETS.map(asset => ({ key: asset.key, label: asset.label })),
+      matrices,
+      stockBondCorrs,
+      windowMeta: {
+        '3M': { label: '3M', cadence: 'Daily returns', observations: observations3m.length },
+        '5Y': { label: '5Y', cadence: 'Monthly returns', observations: observations5y.length },
+        'ALL': { label: 'All', cadence: 'Monthly returns', observations: observationsAll.length },
       },
-      stockBondCorr,
       regime,
     });
   } catch (error) {
     console.error('[correlations] Error:', error);
     res.status(500).json({ error: 'Failed to compute correlation monitor' });
+  }
+});
+
+// ── Liquidity Monitor ────────────────────────────────────────────────────────
+
+/**
+ * GET /api/models/liquidity
+ * Net Fed Liquidity = WALCL - TGA (WDTGAL) - RRP (RRPONTSYD) + M2 + credit impulse.
+ * All series already synced. Self-contained endpoint (no props required in frontend).
+ */
+app.get('/api/models/liquidity', (req, res) => {
+  try {
+    const dailyData = (db.prepare('SELECT date_key, data FROM fred_daily ORDER BY date_key ASC').all() as any[])
+      .map(r => ({ key: r.date_key, data: JSON.parse(r.data) }));
+    const monthlyData = (db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key ASC').all() as any[])
+      .map(r => ({ key: r.month_key, data: JSON.parse(r.data) }));
+
+    // Build net liquidity history (monthly through last year, then current-year daily)
+    let lastWALCL: number | null = null;
+    let lastWDTGAL: number | null = null;
+    let lastRRPON: number | null = null;
+    const netLiqSeries = mergeStoredHistory(
+      monthlyData,
+      dailyData,
+      ({ key, data }) => {
+        const wc = data['WALCL']; const tga = data['WDTGAL']; const rrp = data['RRPONTSYD'];
+        if (wc !== null && wc !== undefined) lastWALCL = wc;
+        if (tga !== null && tga !== undefined) lastWDTGAL = tga;
+        if (rrp !== null && rrp !== undefined) lastRRPON = rrp;
+        const nl = (lastWALCL !== null && lastWDTGAL !== null && lastRRPON !== null)
+          ? Math.round((lastWALCL / 1e6 - lastWDTGAL / 1e6 - lastRRPON / 1e3) * 100) / 100
+          : null;
+        return { date: key + '-01', displayDate: key, netLiquidity: nl, sp500: data['SP500'] ?? null };
+      },
+      ({ key, data }) => {
+        const wc = data['WALCL']; const tga = data['WDTGAL']; const rrp = data['RRPONTSYD'];
+        if (wc !== null && wc !== undefined) lastWALCL = wc;
+        if (tga !== null && tga !== undefined) lastWDTGAL = tga;
+        if (rrp !== null && rrp !== undefined) lastRRPON = rrp;
+        const nl = (lastWALCL !== null && lastWDTGAL !== null && lastRRPON !== null)
+          ? Math.round((lastWALCL / 1e6 - lastWDTGAL / 1e6 - lastRRPON / 1e3) * 100) / 100
+          : null;
+        return { date: key, displayDate: key, netLiquidity: nl, sp500: data['SP500'] ?? null };
+      },
+    );
+    const netLiqValues = netLiqSeries.map(point => ({ date: point.date, value: point.netLiquidity }));
+    const latestNLPoint = latestNonNullPoint(netLiqValues);
+
+    // Current readings
+    const latestNL = latestNLPoint?.value ?? null;
+    const nl90dAgo = latestNLPoint ? getValueOnOrBefore(netLiqValues, getMonthsAgoDate(3, latestNLPoint.date)) : null;
+    const netLiqChange3m = (latestNL !== null && nl90dAgo !== null)
+      ? Math.round((latestNL - nl90dAgo) * 100) / 100 : null;
+
+    // M2 YoY from monthly
+    const m2Arr: number[] = [];
+    for (const { data } of monthlyData) {
+      const v = data['M2SL']; if (v !== null && v !== undefined) m2Arr.push(v);
+    }
+    let m2YoY: number | null = null;
+    if (m2Arr.length >= 13) m2YoY = Math.round(((m2Arr[m2Arr.length-1] / m2Arr[m2Arr.length-13]) - 1) * 100 * 10) / 10;
+
+    // Business loans YoY
+    const blArr: number[] = [];
+    for (const { data } of monthlyData) {
+      const v = data['BUSLOANS']; if (v !== null && v !== undefined) blArr.push(v);
+    }
+    let busloansYoY: number | null = null;
+    if (blArr.length >= 13) busloansYoY = Math.round(((blArr[blArr.length-1] / blArr[blArr.length-13]) - 1) * 100 * 10) / 10;
+
+    // Consumer credit YoY
+    const tlArr: number[] = [];
+    for (const { data } of monthlyData) {
+      const v = data['TOTALSL']; if (v !== null && v !== undefined) tlArr.push(v);
+    }
+    let totalslYoY: number | null = null;
+    if (tlArr.length >= 13) totalslYoY = Math.round(((tlArr[tlArr.length-1] / tlArr[tlArr.length-13]) - 1) * 100 * 10) / 10;
+
+    // Mortgage rate
+    const latestMap: Record<string, number> = {};
+    for (const r of (db.prepare('SELECT id, value FROM fred_latest').all() as any[])) {
+      if (r.value !== null) latestMap[r.id] = r.value;
+    }
+    const mortgage30 = latestMap['MORTGAGE30US'] ?? null;
+    const walcl = lastWALCL !== null ? Math.round(lastWALCL / 1e6 * 100) / 100 : null;
+    const tga = lastWDTGAL !== null ? Math.round(lastWDTGAL / 1e6 * 100) / 100 : null;
+    const rrp = lastRRPON !== null ? Math.round(lastRRPON / 1e3 * 100) / 100 : null;
+
+    // Pulse status
+    const pulseStatus = (netLiqChange3m !== null && m2YoY !== null)
+      ? netLiqChange3m > 0 && m2YoY > 0 ? 'Expansionary'
+      : netLiqChange3m < 0 && m2YoY < 0 ? 'Contracting'
+      : 'Mixed / Neutral'
+      : 'Mixed / Neutral';
+
+    // Full monthly M2 / credit history
+    const m2History = monthlyData.map(({ key, data }, index) => {
+      const yearAgo = index >= 12 ? monthlyData[index - 12].data : null;
+      const m2Now = data['M2SL'] ?? null;
+      const busloansNow = data['BUSLOANS'] ?? null;
+      const totalslNow = data['TOTALSL'] ?? null;
+      const m2YearAgo = yearAgo?.['M2SL'] ?? null;
+      const busloansYearAgo = yearAgo?.['BUSLOANS'] ?? null;
+      const totalslYearAgo = yearAgo?.['TOTALSL'] ?? null;
+
+      return {
+        date: key + '-01',
+        displayDate: key,
+        m2YoY: m2Now !== null && m2YearAgo ? Math.round(((m2Now / m2YearAgo) - 1) * 1000) / 10 : null,
+        busloansYoY: busloansNow !== null && busloansYearAgo ? Math.round(((busloansNow / busloansYearAgo) - 1) * 1000) / 10 : null,
+        totalslYoY: totalslNow !== null && totalslYearAgo ? Math.round(((totalslNow / totalslYearAgo) - 1) * 1000) / 10 : null,
+      };
+    }).filter(point => point.m2YoY !== null || point.busloansYoY !== null || point.totalslYoY !== null);
+
+    res.json({
+      current: { walcl, tga, rrp, netLiquidity: latestNL, netLiqChange3m, m2YoY, busloansYoY, totalslYoY, mortgage30, pulseStatus },
+      history: netLiqSeries,
+      m2History,
+    });
+  } catch (error) {
+    console.error('[liquidity] Error:', error);
+    res.status(500).json({ error: 'Failed to compute liquidity monitor' });
+  }
+});
+
+// ── Financial Conditions Index (FCI) ─────────────────────────────────────────
+
+/**
+ * GET /api/models/fci
+ * 6-component Z-score weighted FCI. Positive = loose, negative = tight.
+ * Components: FEDFUNDS(20%), DFII10(20%), BAMLH0A0HYM2(20%), BAMLC0A0CM(15%), DTWEXBGS(15%), SP500 YoY(10%)
+ */
+app.get('/api/models/fci', (req, res) => {
+  try {
+    const monthlyData = (db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key ASC').all() as any[])
+      .map(r => ({ key: r.month_key, data: JSON.parse(r.data) }));
+
+    // FCI components: [seriesId, weight, tighteningSign(+1 = higher value means tighter)]
+    // SP500 YoY is derived (negative direction: falling market = tighter)
+    const COMPONENTS = [
+      { id: 'FEDFUNDS',      weight: 0.20, sign: +1, label: 'Short Rate (Fed Funds)' },
+      { id: 'DFII10',        weight: 0.20, sign: +1, label: 'Real Long Rate (TIPS 10Y)' },
+      { id: 'BAMLH0A0HYM2', weight: 0.20, sign: +1, label: 'HY Credit Spread' },
+      { id: 'BAMLC0A0CM',   weight: 0.15, sign: +1, label: 'IG Credit Spread' },
+      { id: 'DTWEXBGS',     weight: 0.15, sign: +1, label: 'Dollar Strength (DXY)' },
+      { id: 'SP500_YOY',    weight: 0.10, sign: -1, label: 'Equity Conditions (S&P YoY)' },
+    ] as const;
+
+    // Build monthly series for each component
+    const seriesMap: Record<string, number[]> = {};
+    const sp500Arr: number[] = [];
+    for (const { data } of monthlyData) {
+      for (const c of COMPONENTS) {
+        if (c.id === 'SP500_YOY') continue;
+        const v = data[c.id];
+        if (!seriesMap[c.id]) seriesMap[c.id] = [];
+        if (v !== null && v !== undefined) seriesMap[c.id].push(v);
+        else seriesMap[c.id].push(NaN);
+      }
+      const sp = data['SP500'];
+      sp500Arr.push(sp !== null && sp !== undefined ? sp : NaN);
+    }
+    // SP500 YoY returns
+    seriesMap['SP500_YOY'] = sp500Arr.map((v, i) =>
+      i >= 12 && !isNaN(v) && !isNaN(sp500Arr[i-12]) && sp500Arr[i-12] > 0
+        ? ((v / sp500Arr[i-12]) - 1) * 100 : NaN
+    );
+
+    // Compute FCI for each month using rolling 36M Z-scores
+    const fciHistory: { date: string; fci: number | null; fciImpulse: number | null }[] = [];
+    for (let i = 36; i < monthlyData.length; i++) {
+      const window = monthlyData.slice(i - 36, i);
+      let fciValue = 0;
+      let valid = true;
+
+      for (const c of COMPONENTS) {
+        const windowVals = window.map((_, wi) => {
+          const arr = seriesMap[c.id];
+          const offset = i - 36 + wi;
+          return arr[offset] ?? NaN;
+        }).filter(v => !isNaN(v));
+        const currentVal = seriesMap[c.id][i];
+        if (isNaN(currentVal) || windowVals.length < 12) { valid = false; break; }
+        const mean = windowVals.reduce((s, v) => s + v, 0) / windowVals.length;
+        const std = Math.sqrt(windowVals.reduce((s, v) => s + (v - mean) ** 2, 0) / windowVals.length);
+        const z = std > 0 ? (currentVal - mean) / std : 0;
+        fciValue += c.weight * z * c.sign * -1; // *-1: positive FCI = loose
+      }
+
+      fciHistory.push({
+        date: monthlyData[i].key + '-01',
+        fci: valid ? Math.round(fciValue * 100) / 100 : null,
+        fciImpulse: null,
+      });
+    }
+
+    // Compute FCI impulse (3-month change)
+    for (let i = 3; i < fciHistory.length; i++) {
+      const now = fciHistory[i].fci;
+      const ago = fciHistory[i - 3].fci;
+      fciHistory[i].fciImpulse = (now !== null && ago !== null) ? Math.round((now - ago) * 100) / 100 : null;
+    }
+
+    const recent60 = fciHistory.slice(-60);
+    const latestFCI = fciHistory.length > 0 ? fciHistory[fciHistory.length - 1] : null;
+    const fciValues60 = recent60.map(h => h.fci).filter((v): v is number => v !== null);
+    const fciPercentile = latestFCI?.fci !== null && fciValues60.length > 0
+      ? Math.round((fciValues60.filter(v => v <= latestFCI!.fci!).length / fciValues60.length) * 100) : null;
+
+    const fciScore = latestFCI?.fci ?? null;
+    const fciImpulse = latestFCI?.fciImpulse ?? null;
+    const fciRegime = fciScore === null ? 'Unknown'
+      : fciScore >= 0.5 ? 'Loose'
+      : fciScore >= -0.5 ? 'Neutral'
+      : fciScore >= -1.5 ? 'Tight'
+      : 'Very Tight';
+
+    // Current component contributions
+    const n = monthlyData.length;
+    const window36 = monthlyData.slice(n - 36, n);
+    const components = COMPONENTS.map(c => {
+      const windowVals = window36.map(({ data }, wi) => {
+        if (c.id === 'SP500_YOY') {
+          const offset = n - 36 + wi;
+          return seriesMap['SP500_YOY'][offset] ?? NaN;
+        }
+        const v = data[c.id]; return (v !== null && v !== undefined) ? v : NaN;
+      }).filter(v => !isNaN(v));
+      const currentVal = c.id === 'SP500_YOY' ? seriesMap['SP500_YOY'][n - 1] : (monthlyData[n-1].data[c.id] ?? NaN);
+      if (isNaN(currentVal) || windowVals.length < 12) return { name: c.label, value: null, zScore: null, weight: c.weight, contribution: null };
+      const mean = windowVals.reduce((s, v) => s + v, 0) / windowVals.length;
+      const std = Math.sqrt(windowVals.reduce((s, v) => s + (v - mean) ** 2, 0) / windowVals.length);
+      const z = std > 0 ? (currentVal - mean) / std : 0;
+      const contribution = Math.round(c.weight * z * c.sign * -1 * 100) / 100;
+      return { name: c.label, value: Math.round(currentVal * 100) / 100, zScore: Math.round(z * 100) / 100, weight: c.weight, contribution };
+    });
+
+    res.json({
+      score: fciScore,
+      percentile: fciPercentile,
+      impulse: fciImpulse,
+      regime: fciRegime,
+      components,
+      history: fciHistory,
+    });
+  } catch (error) {
+    console.error('[fci] Error:', error);
+    res.status(500).json({ error: 'Failed to compute financial conditions index' });
+  }
+});
+
+// ── Equity Risk Premium (ERP) ─────────────────────────────────────────────────
+
+/**
+ * GET /api/models/erp
+ * Three ERP measures: Fed Model ERP, Real ERP (vs TIPS), Gordon Growth ERP.
+ * earningsYield fetched live from Yahoo quoteSummary('^SPX', forwardPE).
+ */
+app.get('/api/models/erp', async (req, res) => {
+  try {
+    const latestRows = (db.prepare('SELECT id, value FROM fred_latest').all() as any[]);
+    const latestMap: Record<string, number> = {};
+    for (const r of latestRows) if (r.value !== null) latestMap[r.id] = r.value;
+
+    const monthlyData = (db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key ASC').all() as any[])
+      .map(r => ({ key: r.month_key, data: JSON.parse(r.data) }));
+
+    // Fetch forward P/E from Yahoo Finance
+    let forwardPE: number | null = null;
+    let earningsYield: number | null = null;
+    try {
+      const quote = await yahooFinance.quoteSummary('^SPX', { modules: ['defaultKeyStatistics'] as any });
+      const fpe = (quote as any).defaultKeyStatistics?.forwardPE ?? null;
+      if (fpe && fpe > 0) {
+        forwardPE = Math.round(fpe * 100) / 100;
+        earningsYield = Math.round((1 / fpe) * 100 * 100) / 100; // in %
+      }
+    } catch (err: any) {
+      console.warn('[erp] Yahoo quoteSummary failed:', err.message);
+    }
+
+    const dgs10 = latestMap['DGS10'] ?? null;
+    const realYield = latestMap['DFII10'] ?? null;
+
+    // Three ERP measures
+    const fedERP = earningsYield !== null && dgs10 !== null
+      ? Math.round((earningsYield - dgs10) * 100) / 100 : null;
+    const realERP = earningsYield !== null && realYield !== null
+      ? Math.round((earningsYield - realYield) * 100) / 100 : null;
+    const gordonERP = earningsYield !== null && dgs10 !== null
+      ? Math.round((earningsYield + 4.0 - dgs10) * 100) / 100 : null;
+
+    // 5-year percentile for fedERP using historical approximation
+    // Approximate historical earnings yield from CFNAI-trend: use SP500+DGS10 from history
+    const erpHistory: { date: string; fedERP: number | null; realERP: number | null; sp500: number | null }[] = [];
+    for (const { key, data } of monthlyData) {
+      erpHistory.push({
+        date: key + '-01',
+        fedERP: null, // historical ERP requires earnings data not available in FRED; leave for current only
+        realERP: null,
+        sp500: data['SP500'] ?? null,
+      });
+    }
+
+    // Compute 5Y percentile of fedERP using monthly DGS10 as proxy
+    // Approximate: average ERP over last 5 years based on SP500 earnings yield from trailing PE
+    // Without trailing PE history, we can approximate: earnings yield ≈ 1/(SP500/500E9) not available.
+    // Instead compute percentile of (1/marketPE_rough - DGS10) using available DGS10 history.
+    // Simplified: rank current fedERP vs last 60 months of (6% earnings yield proxy - DGS10)
+    const hist60 = monthlyData.slice(-60);
+    const approxERPArr: number[] = [];
+    for (const { data } of hist60) {
+      const d10 = data['DGS10'];
+      if (d10 !== null && d10 !== undefined) {
+        // 6% approximate long-run earnings yield used as proxy
+        approxERPArr.push(6.0 - d10);
+      }
+    }
+    const fedERPPercentile = fedERP !== null && approxERPArr.length > 0
+      ? Math.round((approxERPArr.filter(v => v <= fedERP).length / approxERPArr.length) * 100) : null;
+
+    const regime = fedERP === null ? 'Unknown'
+      : fedERP > 2.0 ? 'Cheap (vs Bonds)'
+      : fedERP > 0 ? 'Fair'
+      : fedERP > -1 ? 'Expensive'
+      : 'Very Expensive';
+
+    const analysis = fedERP === null
+      ? 'Forward P/E data unavailable from Yahoo Finance.'
+      : `S&P 500 forward earnings yield is ${earningsYield?.toFixed(2)}% vs ${dgs10?.toFixed(2)}% 10Y Treasury. Fed Model ERP: ${fedERP > 0 ? '+' : ''}${fedERP?.toFixed(2)}% (${regime}). Real ERP vs TIPS: ${realERP !== null ? (realERP > 0 ? '+' : '') + realERP?.toFixed(2) + '%' : 'N/A'}. Gordon ERP (E/P + 4% growth): ${gordonERP !== null ? (gordonERP > 0 ? '+' : '') + gordonERP?.toFixed(2) + '%' : 'N/A'}.`;
+
+    res.json({
+      forwardPE,
+      earningsYield,
+      dgs10,
+      realYield,
+      fedERP,
+      realERP,
+      gordonERP,
+      fedERPPercentile,
+      regime,
+      analysis,
+      history: erpHistory,
+    });
+  } catch (error) {
+    console.error('[erp] Error:', error);
+    res.status(500).json({ error: 'Failed to compute equity risk premium' });
   }
 });
 

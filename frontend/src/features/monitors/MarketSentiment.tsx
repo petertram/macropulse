@@ -22,7 +22,17 @@ import {
   Line,
   ReferenceLine
 } from 'recharts';
-import { cn } from '../../shared/utils';
+import { HistoryRangeTabs, useHistoryRange } from '../../shared/components/HistoryRangeTabs';
+import {
+  CHART_AXIS_COLOR,
+  CHART_AXIS_TICK,
+  CHART_GRID_COLOR,
+  CHART_REFERENCE_COLOR,
+  cn,
+  filterHistoryByRange,
+  getHistoryCoverageLabel,
+  getHistoryTickFormatter,
+} from '../../shared/utils';
 
 interface SentimentData {
   composite: number;
@@ -52,6 +62,7 @@ export function MarketSentiment() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastSync, setLastSync] = useState<string | null>(null);
+  const [range, setRange] = useHistoryRange();
 
   useEffect(() => {
     fetchData();
@@ -119,6 +130,10 @@ export function MarketSentiment() {
   }
 
   if (!data) return null;
+
+  const filteredHistory = filterHistoryByRange(data.history, range);
+  const historyCoverage = getHistoryCoverageLabel(data.history);
+  const tickFormatter = getHistoryTickFormatter(range);
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
@@ -267,12 +282,19 @@ export function MarketSentiment() {
 
       {/* Charts */}
       <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6">
+        <HistoryRangeTabs
+          value={range}
+          onChange={setRange}
+          coverageLabel={historyCoverage}
+          className="mb-8"
+        />
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
           <h3 className="text-sm font-medium text-white flex items-center gap-2">
             <Activity className="w-4 h-4 text-emerald-400" />
             Historical Sentiment Channels
           </h3>
-          <div className="flex flex-wrap gap-x-4 gap-y-2">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <span className="text-[10px] text-white/35 uppercase tracking-wider">{historyCoverage}</span>
             <div className="flex items-center gap-1.5">
               <div className="w-2 h-2 rounded-full bg-indigo-500"></div>
               <span className="text-[10px] text-white/40 uppercase tracking-wider">Composite</span>
@@ -289,29 +311,26 @@ export function MarketSentiment() {
         </div>
         <div className="h-[400px] w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data.history}>
+            <AreaChart data={filteredHistory}>
               <defs>
                 <linearGradient id="colorComposite" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#6366f1" stopOpacity={0.15} />
                   <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
               <XAxis
                 dataKey="date"
-                stroke="#444"
-                fontSize={10}
+                stroke={CHART_AXIS_COLOR}
+                tick={CHART_AXIS_TICK}
                 tickLine={false}
                 axisLine={false}
-                tickFormatter={(str) => {
-                  const date = new Date(str);
-                  return date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-                }}
+                tickFormatter={tickFormatter}
                 minTickGap={30}
               />
               <YAxis
-                stroke="#444"
-                fontSize={10}
+                stroke={CHART_AXIS_COLOR}
+                tick={CHART_AXIS_TICK}
                 tickLine={false}
                 axisLine={false}
                 domain={[0, 100]}
@@ -321,7 +340,7 @@ export function MarketSentiment() {
                 contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
                 labelFormatter={(str) => new Date(str).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
               />
-              <ReferenceLine y={50} stroke="#222" strokeDasharray="5 5" />
+              <ReferenceLine y={50} stroke={CHART_REFERENCE_COLOR} strokeDasharray="5 5" />
               <ReferenceLine y={25} stroke="#f43f5e" strokeDasharray="3 3" opacity={0.3} label={{ value: 'FEAR', position: 'right', fill: '#f43f5e', fontSize: 8, fontWeight: 'bold' }} />
               <ReferenceLine y={75} stroke="#10b981" strokeDasharray="3 3" opacity={0.3} label={{ value: 'GREED', position: 'right', fill: '#10b981', fontSize: 8, fontWeight: 'bold' }} />
 

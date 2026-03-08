@@ -30,6 +30,16 @@ import {
   Line,
   Legend
 } from 'recharts';
+import { HistoryRangeTabs, useHistoryRange } from '../../shared/components/HistoryRangeTabs';
+import {
+  CHART_AXIS_COLOR,
+  CHART_AXIS_TICK,
+  CHART_GRID_COLOR,
+  CHART_REFERENCE_COLOR,
+  filterHistoryByRange,
+  getHistoryCoverageLabel,
+  getHistoryTickFormatter,
+} from '../../shared/utils';
 
 interface ESIData {
   current: number;
@@ -46,6 +56,7 @@ export function EconomicSurprise() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showMethodology, setShowMethodology] = useState(false);
+  const [range, setRange] = useHistoryRange();
 
   const fetchData = () => {
     setLoading(true);
@@ -76,11 +87,10 @@ export function EconomicSurprise() {
     );
   }
 
-  // Prepare last 36 months for charts
-  const chartHistory = data.history.slice(-36).map(pt => ({
-    ...pt,
-    label: new Date(pt.date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
-  }));
+  const filteredHistory = filterHistoryByRange(data.history, range);
+  const historyCoverage = getHistoryCoverageLabel(data.history);
+  const chartHistory = filteredHistory;
+  const tickFormatter = getHistoryTickFormatter(range);
 
   const currentESI = data.current;
   const isPositive = currentESI > 0.2;
@@ -214,15 +224,24 @@ export function EconomicSurprise() {
       </div>
 
       {/* Charts */}
+      <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-4">
+        <HistoryRangeTabs
+          value={range}
+          onChange={setRange}
+          coverageLabel={historyCoverage}
+        />
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Composite ESI Bar Chart with Benchmark */}
         <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6">
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-sm font-medium text-white flex items-center gap-2">
               <BarChart className="w-4 h-4 text-emerald-400" />
-              ESI vs Fed Benchmark (36m)
+              ESI vs Fed Benchmark
             </h3>
-            <div className="flex gap-4">
+            <div className="flex items-center gap-4">
+              <span className="text-[10px] text-white/35 uppercase tracking-wider">{historyCoverage}</span>
               <div className="flex items-center gap-1.5">
                 <div className="w-2.5 h-2.5 rounded bg-white/10 border border-emerald-500/50"></div>
                 <span className="text-[10px] text-white/40">Quant Model</span>
@@ -236,18 +255,19 @@ export function EconomicSurprise() {
           <div className="h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={chartHistory}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
                 <XAxis
-                  dataKey="label"
-                  stroke="#444"
-                  fontSize={10}
+                  dataKey="date"
+                  stroke={CHART_AXIS_COLOR}
+                  tick={CHART_AXIS_TICK}
                   tickLine={false}
                   axisLine={false}
                   interval={2}
+                  tickFormatter={tickFormatter}
                 />
                 <YAxis
-                  stroke="#444"
-                  fontSize={10}
+                  stroke={CHART_AXIS_COLOR}
+                  tick={CHART_AXIS_TICK}
                   tickLine={false}
                   axisLine={false}
                   tickFormatter={(v: number) => `${v.toFixed(1)}σ`}
@@ -256,7 +276,7 @@ export function EconomicSurprise() {
                   contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', fontSize: '12px' }}
                   cursor={{ fill: 'rgba(255,255,255,0.05)' }}
                 />
-                <ReferenceLine y={0} stroke="#444" />
+                <ReferenceLine y={0} stroke={CHART_REFERENCE_COLOR} />
                 <Bar
                   dataKey="composite"
                   name="Quant ESI"
@@ -283,25 +303,29 @@ export function EconomicSurprise() {
 
         {/* Module Decomposition Line Chart */}
         <div className="bg-[#0f0f0f] rounded-2xl border border-white/10 p-6">
-          <h3 className="text-sm font-medium text-white mb-6 flex items-center gap-2">
-            <Target className="w-4 h-4 text-blue-400" />
-            Quant Intelligence Breakdown (36m)
-          </h3>
+          <div className="flex items-center justify-between gap-3 mb-6">
+            <h3 className="text-sm font-medium text-white flex items-center gap-2">
+              <Target className="w-4 h-4 text-blue-400" />
+              Quant Intelligence Breakdown
+            </h3>
+            <span className="text-[10px] text-white/35 uppercase tracking-wider">{historyCoverage}</span>
+          </div>
           <div className="h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartHistory}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
                 <XAxis
-                  dataKey="label"
-                  stroke="#444"
-                  fontSize={10}
+                  dataKey="date"
+                  stroke={CHART_AXIS_COLOR}
+                  tick={CHART_AXIS_TICK}
                   tickLine={false}
                   axisLine={false}
                   interval={2}
+                  tickFormatter={tickFormatter}
                 />
                 <YAxis
-                  stroke="#444"
-                  fontSize={10}
+                  stroke={CHART_AXIS_COLOR}
+                  tick={CHART_AXIS_TICK}
                   tickLine={false}
                   axisLine={false}
                   tickFormatter={(v: number) => `${v.toFixed(1)}σ`}
@@ -315,7 +339,7 @@ export function EconomicSurprise() {
                   height={30}
                   wrapperStyle={{ fontSize: '11px', color: '#666' }}
                 />
-                <ReferenceLine y={0} stroke="#333" strokeDasharray="3 3" />
+                <ReferenceLine y={0} stroke={CHART_REFERENCE_COLOR} strokeDasharray="3 3" />
                 <Line type="monotone" dataKey="labor" name="Labor" stroke="#8b5cf6" strokeWidth={2} dot={false} connectNulls />
                 <Line type="monotone" dataKey="growth" name="Growth" stroke="#3b82f6" strokeWidth={2} dot={false} connectNulls />
                 <Line type="monotone" dataKey="inflation" name="Inflation" stroke="#f59e0b" strokeWidth={2} dot={false} connectNulls />
