@@ -3,9 +3,47 @@ import express from 'express';
 import dotenv from 'dotenv';
 import YahooFinance from 'yahoo-finance2';
 import Database from 'better-sqlite3';
+import rateLimit from 'express-rate-limit';
 
 import path from 'path';
 import { fileURLToPath } from 'url';
+
+import { logger } from './logger.js';
+import {
+  todayStr,
+  currentYearStart,
+  lastYearEnd,
+  lastYearLastMonth,
+  isDateCurrent,
+  getPercentileRank,
+  pearsonCorrelation,
+  toMonthKey,
+} from './utils.js';
+import {
+  SERVER_PORT,
+  HISTORY_START_DATE,
+  SENTIMENT_LOOKBACK_MONTHS,
+  SENTIMENT_DIVERGENCE_THRESHOLD,
+  SENTIMENT_THRESHOLDS,
+  SENTIMENT_MOMENTUM_THRESHOLD,
+  ESI_LOOKBACK_MONTHS,
+  CORRELATION_WINDOWS,
+  REGIME_THRESHOLDS,
+  MIN_CORRELATION_OBSERVATIONS,
+  RATE_LIMIT_WINDOW_MS,
+  RATE_LIMIT_MAX_REQUESTS,
+  MIN_PERCENTILE_OBSERVATIONS,
+} from './constants.js';
+import type {
+  FredLatestRow,
+  FredHistoryRow,
+  FredDailyRow,
+  CountRow,
+  MetadataValueRow,
+  LatestResult,
+  DataPoint,
+  YahooHistoricalObs,
+} from './types.js';
 
 dotenv.config();
 
@@ -15,8 +53,12 @@ const __dirname = path.dirname(__filename);
 const db = new Database(path.join(__dirname, 'market_data.db'));
 const yahooFinance = new YahooFinance();
 const app = express();
-const PORT = 3001;
-const FRED_API_KEY = process.env.FRED_API_KEY || '4030789b3b214aeade239a08babaa32a';
+const PORT = SERVER_PORT;
+
+const FRED_API_KEY = process.env.FRED_API_KEY;
+if (!FRED_API_KEY) {
+  throw new Error('FRED_API_KEY environment variable is required. Set it in your .env file.');
+}
 
 const FRED_SERIES_IDS = [
   'BAMLH0A0HYM2', 'T10Y2Y', 'VIXCLS', 'VXVCLS',
@@ -70,6 +112,15 @@ const FRED_SERIES_IDS = [
 
 app.use(express.json());
 
+// Rate limiter: max RATE_LIMIT_MAX_REQUESTS requests per minute per IP on all /api routes
+const apiLimiter = rateLimit({
+  windowMs: RATE_LIMIT_WINDOW_MS,
+  max: RATE_LIMIT_MAX_REQUESTS,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/', apiLimiter);
+
 // Initialize SQLite tables
 db.exec(`
   CREATE TABLE IF NOT EXISTS fred_latest (
@@ -116,7 +167,7 @@ async function fetchWithRetry(url: string, retries = 3, delay = 1000): Promise<a
  * (not just SP500 from Yahoo Finance). Returns null if no FRED data exists.
  */
 function getLastFredMonthlyDate(): string | null {
-  const rows = db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key DESC').all() as any[];
+  const rows = db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key DESC').all() as FredHistoryRow[];
   for (const row of rows) {
     const data = JSON.parse(row.data);
     const hasFredData = FRED_SERIES_IDS.some(id => data[id] !== undefined && data[id] !== null);
@@ -132,7 +183,7 @@ function getLastFredMonthlyDate(): string | null {
  * Returns null if no daily FRED data exists.
  */
 function getLastFredDailyDate(): string | null {
-  const rows = db.prepare('SELECT date_key, data FROM fred_daily ORDER BY date_key DESC').all() as any[];
+  const rows = db.prepare('SELECT date_key, data FROM fred_daily ORDER BY date_key DESC').all() as FredDailyRow[];
   for (const row of rows) {
     const data = JSON.parse(row.data);
     const hasFredData = FRED_SERIES_IDS.some(id => data[id] !== undefined && data[id] !== null);
@@ -143,46 +194,14 @@ function getLastFredDailyDate(): string | null {
   return null;
 }
 
-/** Returns today as YYYY-MM-DD */
-function todayStr(): string {
-  return new Date().toISOString().split('T')[0];
-}
-
-/** Returns January 1st of the current year as YYYY-MM-DD */
-function currentYearStart(): string {
-  return `${new Date().getFullYear()}-01-01`;
-}
-
-/** Returns December 31st of the previous year as YYYY-MM-DD */
-function lastYearEnd(): string {
-  return `${new Date().getFullYear() - 1}-12-31`;
-}
-
-/** Returns the last month of the previous year as YYYY-MM */
-function lastYearLastMonth(): string {
-  return `${new Date().getFullYear() - 1}-12`;
-}
-
 /**
  * Check if the daily FRED data is considered "current"
- * (i.e. from today or yesterday, meaning no sync needed).
+ * (i.e. from today or up to DATA_CURRENCY_LOOKBACK_DAYS ago, covering weekends).
  */
 function isDataCurrent(): boolean {
   const lastDailyDate = getLastFredDailyDate();
   if (!lastDailyDate) return false;
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-  // Also check 2 days ago (for weekends — FRED has no weekend data)
-  const twoDaysAgo = new Date(today);
-  twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
-  const threeDaysAgo = new Date(today);
-  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-
-  const format = (d: Date) => d.toISOString().split('T')[0];
-  return [format(today), format(yesterday), format(twoDaysAgo), format(threeDaysAgo)].includes(lastDailyDate);
+  return isDateCurrent(lastDailyDate);
 }
 
 /**
@@ -191,7 +210,7 @@ function isDataCurrent(): boolean {
 function isSyncToday(): boolean {
   try {
     const getMeta = db.prepare('SELECT value FROM sync_metadata WHERE key = ?');
-    const lastSyncDateStr = (getMeta.get('last_sync_date') as any)?.value;
+    const lastSyncDateStr = (getMeta.get('last_sync_date') as MetadataValueRow | undefined)?.value;
     if (!lastSyncDateStr) return false;
     const lastSyncDate = lastSyncDateStr.split('T')[0];
     return lastSyncDate === todayStr();
@@ -229,7 +248,7 @@ async function syncMonthlyData(startDate: string): Promise<number> {
   // Build date map, merging with existing
   const dateMap: Record<string, any> = {};
   const existingRows = db.prepare('SELECT month_key, data FROM fred_history WHERE month_key >= ?')
-    .all(startDate.substring(0, 7)) as any[];
+    .all(startDate.substring(0, 7)) as FredHistoryRow[];
   for (const row of existingRows) {
     dateMap[row.month_key] = JSON.parse(row.data);
   }
@@ -322,7 +341,7 @@ async function syncDailyData(startDate?: string): Promise<number> {
   // Build daily date map, merging with existing
   const dailyMap: Record<string, any> = {};
   const existingDaily = db.prepare('SELECT date_key, data FROM fred_daily WHERE date_key >= ?')
-    .all(dailyStart) as any[];
+    .all(dailyStart) as FredDailyRow[];
   for (const row of existingDaily) {
     dailyMap[row.date_key] = JSON.parse(row.data);
   }
@@ -378,7 +397,7 @@ async function syncDailyData(startDate?: string): Promise<number> {
   // Filter out days with no actual data (only keep days that have at least one value)
   const filteredMap: Record<string, any> = {};
   for (const [dateKey, data] of Object.entries(dailyMap)) {
-    const hasAnyValue = Object.keys(data).some(k => k !== 'date' && (data as any)[k] !== null);
+    const hasAnyValue = Object.keys(data).some(k => k !== 'date' && (data as DataPoint)[k] !== null);
     if (hasAnyValue) {
       filteredMap[dateKey] = data;
     }
@@ -527,13 +546,13 @@ app.get('/api/fred/history', (req, res) => {
 app.get('/api/fred/sync-status', (req, res) => {
   try {
     const getMeta = db.prepare('SELECT value FROM sync_metadata WHERE key = ?');
-    const lastSyncDate = (getMeta.get('last_sync_date') as any)?.value || null;
-    const lastSyncStatus = (getMeta.get('last_sync_status') as any)?.value || null;
-    const hasData = (db.prepare('SELECT COUNT(*) as count FROM fred_latest').get() as any).count > 0;
+    const lastSyncDate = (getMeta.get('last_sync_date') as MetadataValueRow | undefined)?.value ?? null;
+    const lastSyncStatus = (getMeta.get('last_sync_status') as MetadataValueRow | undefined)?.value ?? null;
+    const hasData = (db.prepare('SELECT COUNT(*) as count FROM fred_latest').get() as CountRow).count > 0;
     const lastFredMonthly = getLastFredMonthlyDate();
     const lastFredDaily = getLastFredDailyDate();
-    const monthlyCount = (db.prepare('SELECT COUNT(*) as count FROM fred_history').get() as any).count;
-    const dailyCount = (db.prepare('SELECT COUNT(*) as count FROM fred_daily').get() as any).count;
+    const monthlyCount = (db.prepare('SELECT COUNT(*) as count FROM fred_history').get() as CountRow).count;
+    const dailyCount = (db.prepare('SELECT COUNT(*) as count FROM fred_daily').get() as CountRow).count;
     const isCurrent = isDataCurrent();
     res.json({
       lastSyncDate, lastSyncStatus, hasData, isCurrent,
@@ -551,7 +570,7 @@ app.get('/api/fred/sync-status', (req, res) => {
  * This catches cases where new series were added to the config but never fetched.
  */
 function hasMissingSeries(): boolean {
-  const existingIds = (db.prepare('SELECT id FROM fred_latest').all() as any[]).map(r => r.id);
+  const existingIds = (db.prepare('SELECT id FROM fred_latest').all() as FredLatestRow[]).map(r => r.id);
   return FRED_SERIES_IDS.some(id => !existingIds.includes(id));
 }
 
@@ -566,7 +585,7 @@ app.post('/api/fred/sync', async (req, res) => {
     if (!forceFull && syncToday && !missingSeries) {
       console.log('[sync] Sync has already been performed today, skipping re-sync');
       const getMeta = db.prepare('SELECT value FROM sync_metadata WHERE key = ?');
-      const lastSyncDate = (getMeta.get('last_sync_date') as any)?.value || null;
+      const lastSyncDate = (getMeta.get('last_sync_date') as MetadataValueRow | undefined)?.value ?? null;
       return res.json({
         success: true,
         message: 'Data is already up to date',
@@ -580,7 +599,7 @@ app.post('/api/fred/sync', async (req, res) => {
       console.log(`[sync] ${forceFull ? 'Forced' : 'Missing series'} full re-sync from 1990...`);
       const result = await syncFredData('1990-01-01');
       const getMeta = db.prepare('SELECT value FROM sync_metadata WHERE key = ?');
-      const lastSyncDate = (getMeta.get('last_sync_date') as any)?.value || null;
+      const lastSyncDate = (getMeta.get('last_sync_date') as MetadataValueRow | undefined)?.value ?? null;
       res.json({ ...result, lastSyncDate, skipped: false });
     } else {
       const lastMonthly = getLastFredMonthlyDate();
@@ -590,14 +609,14 @@ app.post('/api/fred/sync', async (req, res) => {
         console.log('[sync] No FRED data found. Full sync from 1990...');
         const result = await syncFredData('1990-01-01');
         const getMeta = db.prepare('SELECT value FROM sync_metadata WHERE key = ?');
-        const lastSyncDate = (getMeta.get('last_sync_date') as any)?.value || null;
+        const lastSyncDate = (getMeta.get('last_sync_date') as MetadataValueRow | undefined)?.value ?? null;
         res.json({ ...result, lastSyncDate, skipped: false });
       } else {
         // Monthly data exists — just do incremental daily sync
         console.log('[sync] Monthly data exists. Doing incremental daily sync...');
         const result = await syncIncrementalDaily();
         const getMeta = db.prepare('SELECT value FROM sync_metadata WHERE key = ?');
-        const lastSyncDate = (getMeta.get('last_sync_date') as any)?.value || null;
+        const lastSyncDate = (getMeta.get('last_sync_date') as MetadataValueRow | undefined)?.value ?? null;
         res.json({ ...result, lastSyncDate, skipped: false });
       }
     }
@@ -606,7 +625,7 @@ app.post('/api/fred/sync', async (req, res) => {
     try {
       const upsertMeta = db.prepare('INSERT OR REPLACE INTO sync_metadata (key, value) VALUES (?, ?)');
       upsertMeta.run('last_sync_status', 'error');
-    } catch (_) { /* ignore metadata write failure */ }
+    } catch (metaErr) { logger.error('sync', 'Failed to update sync status metadata', metaErr); }
     res.status(500).json({ error: 'Failed to sync data' });
   }
 });
@@ -627,8 +646,6 @@ const SENTIMENT_COMPONENTS = [
   { id: 'STLFSI4', name: 'Financial Stress', weight: 0.15, invert: true, source: 'fred' },
   { id: 'XLU_XLY', name: 'Defensive/Cyclical Ratio', weight: 0.10, invert: true, source: 'derived' },
 ] as const;
-
-const SENTIMENT_LOOKBACK_MONTHS = 12; // 1-year percentile window
 
 app.get('/api/sentiment', (req, res) => {
   try {
@@ -654,11 +671,7 @@ app.get('/api/sentiment', (req, res) => {
     }
 
     // 3. For each component, extract time series and compute percentile rank at each point
-    function getPercentileRank(values: number[], currentVal: number): number {
-      const sorted = [...values].sort((a, b) => a - b);
-      const rank = sorted.filter(v => v <= currentVal).length;
-      return (rank / sorted.length) * 100;
-    }
+    // (getPercentileRank is imported from utils.ts)
 
     // Build per-component time series
     const componentTimelines: Record<string, { date: string; value: number }[]> = {};
@@ -854,7 +867,7 @@ const ESI_MODULES = {
   }
 };
 
-const ESI_LOOKBACK = 6; // months for rolling stats
+const ESI_LOOKBACK = ESI_LOOKBACK_MONTHS;
 
 app.get('/api/models/economic-surprise', (req, res) => {
   try {
@@ -1068,7 +1081,7 @@ const BENCHMARK_TICKER = 'SPY';
  */
 function computeFredTrend(seriesId: string): { score: -1 | 0 | 1; value: string; detail: string } {
   // Try daily first (current year), then fall back to monthly
-  const dailyRows = db.prepare('SELECT date_key, data FROM fred_daily ORDER BY date_key DESC LIMIT 90').all() as any[];
+  const dailyRows = db.prepare('SELECT date_key, data FROM fred_daily ORDER BY date_key DESC LIMIT 90').all() as FredDailyRow[];
   const values: { date: string; val: number }[] = [];
 
   for (const row of dailyRows) {
@@ -1081,7 +1094,7 @@ function computeFredTrend(seriesId: string): { score: -1 | 0 | 1; value: string;
 
   // Fall back to monthly if not enough daily data
   if (values.length < 3) {
-    const monthlyRows = db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key DESC LIMIT 6').all() as any[];
+    const monthlyRows = db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key DESC LIMIT 6').all() as FredHistoryRow[];
     for (const row of monthlyRows) {
       const d = JSON.parse(row.data);
       if (d[seriesId] !== undefined && d[seriesId] !== null) {
@@ -1370,9 +1383,9 @@ function normalCDF(x: number): number {
 app.get('/api/models/recession-probability', (req, res) => {
   try {
     // Load all monthly + daily data
-    const monthlyData = (db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key ASC').all() as any[])
+    const monthlyData = (db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key ASC').all() as FredHistoryRow[])
       .map(r => ({ key: r.month_key, data: JSON.parse(r.data) }));
-    const dailyData = (db.prepare('SELECT date_key, data FROM fred_daily ORDER BY date_key ASC').all() as any[])
+    const dailyData = (db.prepare('SELECT date_key, data FROM fred_daily ORDER BY date_key ASC').all() as FredDailyRow[])
       .map(r => ({ key: r.date_key, data: JSON.parse(r.data) }));
 
     // ── Sahm Rule ────────────────────────────────────────────────────────────
@@ -1497,7 +1510,7 @@ app.get('/api/models/yield-curve', (req, res) => {
     ];
 
     // Get latest values from fred_latest (most current single observation)
-    const latestRows = (db.prepare('SELECT id, value, date FROM fred_latest').all() as any[]);
+    const latestRows = (db.prepare('SELECT id, value, date FROM fred_latest').all() as FredLatestRow[]);
     const latestMap: Record<string, number> = {};
     for (const row of latestRows) {
       if (row.value !== null) latestMap[row.id] = row.value;
@@ -1510,9 +1523,9 @@ app.get('/api/models/yield-curve', (req, res) => {
     })).filter(p => p.yield !== null);
 
     // Spread history: use T10Y2Y monthly from fred_history + daily from fred_daily
-    const spreadMonthly = (db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key ASC').all() as any[])
+    const spreadMonthly = (db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key ASC').all() as FredHistoryRow[])
       .map(r => ({ date: r.month_key + '-01', data: JSON.parse(r.data) }));
-    const spreadDaily = (db.prepare('SELECT date_key, data FROM fred_daily ORDER BY date_key ASC').all() as any[])
+    const spreadDaily = (db.prepare('SELECT date_key, data FROM fred_daily ORDER BY date_key ASC').all() as FredDailyRow[])
       .map(r => ({ date: r.date_key, data: JSON.parse(r.data) }));
 
     const spreadHistory: { date: string; spread: number }[] = [];
@@ -1585,11 +1598,11 @@ app.get('/api/models/yield-curve', (req, res) => {
  */
 app.get('/api/models/credit-cycle', (req, res) => {
   try {
-    const monthlyData = (db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key ASC').all() as any[])
+    const monthlyData = (db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key ASC').all() as FredHistoryRow[])
       .map(r => ({ key: r.month_key, data: JSON.parse(r.data) }));
-    const dailyData = (db.prepare('SELECT date_key, data FROM fred_daily ORDER BY date_key ASC').all() as any[])
+    const dailyData = (db.prepare('SELECT date_key, data FROM fred_daily ORDER BY date_key ASC').all() as FredDailyRow[])
       .map(r => ({ key: r.date_key, data: JSON.parse(r.data) }));
-    const latestRows = (db.prepare('SELECT id, value FROM fred_latest').all() as any[]);
+    const latestRows = (db.prepare('SELECT id, value FROM fred_latest').all() as FredLatestRow[]);
     const latestMap: Record<string, number> = {};
     for (const r of latestRows) if (r.value !== null) latestMap[r.id] = r.value;
 
@@ -1672,7 +1685,7 @@ app.get('/api/models/credit-cycle', (req, res) => {
  */
 app.get('/api/models/economic-cycles', (req, res) => {
   try {
-    const monthlyData = (db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key ASC').all() as any[])
+    const monthlyData = (db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key ASC').all() as FredHistoryRow[])
       .map(r => ({ key: r.month_key, data: JSON.parse(r.data) }));
 
     // NBER recession reference periods (hardcoded — official, immutable)
@@ -1755,7 +1768,7 @@ app.get('/api/models/economic-cycles', (req, res) => {
  */
 app.get('/api/models/macro-regime', (req, res) => {
   try {
-    const monthlyData = (db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key ASC').all() as any[])
+    const monthlyData = (db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key ASC').all() as FredHistoryRow[])
       .map(r => ({ key: r.month_key, data: JSON.parse(r.data) }));
 
     const REGIME_NAMES: Record<number, { name: string; description: string; assets: { equities: string; bonds: string; commodities: string; cash: string } }> = {
@@ -1848,9 +1861,9 @@ app.get('/api/models/macro-regime', (req, res) => {
  */
 app.get('/api/models/fed-policy', (req, res) => {
   try {
-    const monthlyData = (db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key ASC').all() as any[])
+    const monthlyData = (db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key ASC').all() as FredHistoryRow[])
       .map(r => ({ key: r.month_key, data: JSON.parse(r.data) }));
-    const latestRows = (db.prepare('SELECT id, value FROM fred_latest').all() as any[]);
+    const latestRows = (db.prepare('SELECT id, value FROM fred_latest').all() as FredLatestRow[]);
     const latestMap: Record<string, number> = {};
     for (const r of latestRows) if (r.value !== null) latestMap[r.id] = r.value;
 
@@ -2031,11 +2044,11 @@ app.get('/api/models/factors', async (req, res) => {
  */
 app.get('/api/models/bond-scorecard', (req, res) => {
   try {
-    const latestRows = (db.prepare('SELECT id, value, date FROM fred_latest').all() as any[]);
+    const latestRows = (db.prepare('SELECT id, value, date FROM fred_latest').all() as FredLatestRow[]);
     const latestMap: Record<string, number> = {};
     for (const r of latestRows) if (r.value !== null) latestMap[r.id] = r.value;
 
-    const dailyData = (db.prepare('SELECT date_key, data FROM fred_daily ORDER BY date_key ASC').all() as any[])
+    const dailyData = (db.prepare('SELECT date_key, data FROM fred_daily ORDER BY date_key ASC').all() as FredDailyRow[])
       .map(r => ({ key: r.date_key, data: JSON.parse(r.data) }));
 
     // ── Term Premium (DGS10 - DGS3M)
@@ -2085,7 +2098,7 @@ app.get('/api/models/bond-scorecard', (req, res) => {
     const totalScore = termScore + realScore + breakevenScore + curveScore + durationScore;
 
     // Build 60-month history of DGS10 + DFII10 + T10YIE from monthly data
-    const monthlyData = (db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key ASC').all() as any[])
+    const monthlyData = (db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key ASC').all() as FredHistoryRow[])
       .map(r => ({ key: r.month_key, data: JSON.parse(r.data) })).slice(-60);
     const history = monthlyData.map(({ key, data }) => ({
       date: key + '-01',
@@ -2120,12 +2133,12 @@ app.get('/api/models/bond-scorecard', (req, res) => {
  */
 app.get('/api/models/inflation-decomposition', (req, res) => {
   try {
-    const monthlyData = (db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key ASC').all() as any[])
+    const monthlyData = (db.prepare('SELECT month_key, data FROM fred_history ORDER BY month_key ASC').all() as FredHistoryRow[])
       .map(r => ({ key: r.month_key, data: JSON.parse(r.data) }));
-    const dailyData = (db.prepare('SELECT date_key, data FROM fred_daily ORDER BY date_key ASC').all() as any[])
+    const dailyData = (db.prepare('SELECT date_key, data FROM fred_daily ORDER BY date_key ASC').all() as FredDailyRow[])
       .map(r => ({ key: r.date_key, data: JSON.parse(r.data) }));
     const latestMap: Record<string, number> = {};
-    for (const r of (db.prepare('SELECT id, value FROM fred_latest').all() as any[])) {
+    for (const r of (db.prepare('SELECT id, value FROM fred_latest').all() as FredLatestRow[])) {
       if (r.value !== null) latestMap[r.id] = r.value;
     }
 
@@ -2212,7 +2225,7 @@ app.get('/api/models/inflation-decomposition', (req, res) => {
  */
 app.get('/api/models/commodities', async (req, res) => {
   try {
-    const dailyData = (db.prepare('SELECT date_key, data FROM fred_daily ORDER BY date_key ASC').all() as any[])
+    const dailyData = (db.prepare('SELECT date_key, data FROM fred_daily ORDER BY date_key ASC').all() as FredDailyRow[])
       .map(r => ({ key: r.date_key, data: JSON.parse(r.data) }));
 
     function latestVal(key: string): number | null {
@@ -2286,7 +2299,7 @@ app.get('/api/models/commodities', async (req, res) => {
  */
 app.get('/api/models/dollar', (req, res) => {
   try {
-    const dailyData = (db.prepare('SELECT date_key, data FROM fred_daily ORDER BY date_key ASC').all() as any[])
+    const dailyData = (db.prepare('SELECT date_key, data FROM fred_daily ORDER BY date_key ASC').all() as FredDailyRow[])
       .map(r => ({ key: r.date_key, data: JSON.parse(r.data) }));
 
     // Build DTWEXBGS and DXY series (prefer DXY from Yahoo, fallback to DTWEXBGS)
@@ -2313,7 +2326,7 @@ app.get('/api/models/dollar', (req, res) => {
 
     // DEXUSEU (USD/EUR) — latest from fred_latest
     const latestMap: Record<string, number> = {};
-    for (const r of (db.prepare('SELECT id, value FROM fred_latest').all() as any[])) {
+    for (const r of (db.prepare('SELECT id, value FROM fred_latest').all() as FredLatestRow[])) {
       if (r.value !== null) latestMap[r.id] = r.value;
     }
     const usdEur = latestMap['DEXUSEU'] ?? null;
@@ -2362,7 +2375,7 @@ app.get('/api/models/dollar', (req, res) => {
  */
 app.get('/api/models/correlations', (req, res) => {
   try {
-    const dailyData = (db.prepare('SELECT date_key, data FROM fred_daily ORDER BY date_key ASC').all() as any[])
+    const dailyData = (db.prepare('SELECT date_key, data FROM fred_daily ORDER BY date_key ASC').all() as FredDailyRow[])
       .map(r => ({ key: r.date_key, data: JSON.parse(r.data) }));
 
     const ASSETS = [
@@ -2400,19 +2413,7 @@ app.get('/api/models/correlations', (req, res) => {
       return r;
     }
 
-    function pearson(xs: number[], ys: number[]): number {
-      const n = Math.min(xs.length, ys.length);
-      if (n < 5) return 0;
-      const mx = xs.slice(0, n).reduce((a, b) => a + b, 0) / n;
-      const my = ys.slice(0, n).reduce((a, b) => a + b, 0) / n;
-      const num = xs.slice(0, n).reduce((s, x, i) => s + (x - mx) * (ys[i] - my), 0);
-      const den = Math.sqrt(
-        xs.slice(0, n).reduce((s, x) => s + (x - mx) ** 2, 0) *
-        ys.slice(0, n).reduce((s, y) => s + (y - my) ** 2, 0)
-      );
-      return den === 0 ? 0 : Math.round((num / den) * 100) / 100;
-    }
-
+    // pearsonCorrelation is imported from utils.ts
     function buildMatrix(windowDays: number) {
       const matrix: Record<string, Record<string, number>> = {};
       const returns: Record<string, number[]> = {};
@@ -2428,7 +2429,7 @@ app.get('/api/models/correlations', (req, res) => {
         for (const b of ASSETS) {
           const xs = returns[a.key].slice(1);
           const ys = returns[b.key].slice(1);
-          matrix[a.key][b.key] = a.key === b.key ? 1.0 : pearson(xs, ys);
+          matrix[a.key][b.key] = a.key === b.key ? 1.0 : pearsonCorrelation(xs, ys, MIN_CORRELATION_OBSERVATIONS);
         }
       }
       return matrix;
