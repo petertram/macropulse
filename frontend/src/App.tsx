@@ -197,7 +197,7 @@ export default function App() {
         <div className="p-6 border-b border-white/10 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div>
-              <h1 className="text-base font-semibold tracking-tight text-white leading-tight">HAI - MacroPulse</h1>
+              <h1 className="text-base font-semibold tracking-tight text-white leading-tight">MacroPulse</h1>
               <p className="text-[10px] uppercase tracking-widest text-white/40 font-medium">Models & Scorecards</p>
             </div>
           </div>
